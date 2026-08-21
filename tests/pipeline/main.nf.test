@@ -1,0 +1,64 @@
+nextflow_pipeline {
+
+    name "Test Pipeline main.nf"
+    script "main.nf"
+
+    test("runs end-to-end and sorts clusters into all three confidence buckets") {
+
+        // main.nf resolves each samplesheet row's fastq glob relative to the
+        // launch directory, not the samplesheet's own location (see main.nf's
+        // samplesheetToChannel comment) -- and nf-test launches Nextflow from
+        // its own working directory, not the repo root. The checked-in
+        // tests/data/samplesheet.csv uses repo-root-relative globs for a human
+        // running `-profile test` directly, so it can't be reused here; this
+        // generates an equivalent samplesheet with ${projectDir}-anchored
+        // absolute paths instead. Written to an independent temp dir (not
+        // $outputDir) since $outputDir gets prepared/cleaned for the pipeline
+        // run itself and doesn't reliably keep files written before `when`.
+        def sheetDir = File.createTempDir()
+        def sheet = new File(sheetDir, "samplesheet.csv")
+        sheet.text = """sample,fastq
+sample_a,${projectDir}/tests/data/reads/sample_a/*.fastq.gz
+sample_b,${projectDir}/tests/data/reads/sample_b/*.fastq.gz
+"""
+
+        when {
+            params {
+                input       = sheet.toString()
+                taxdb       = "${projectDir}/tests/data/test_refs.fasta"
+                outdir      = "$outputDir"
+                min_len     = 100
+                max_len     = 2000
+                min_qual    = 10
+                cluster_id  = 0.85
+                min_cluster = 5
+                min_pident  = 90
+            }
+        }
+
+        then {
+            assert workflow.success
+
+            // tests/data/samplesheet.csv's two synthetic samples were built
+            // (see tests/data/generate_synthetic_reads.py) specifically to
+            // land one cluster in each SORT_CONSENSUS bucket
+            def confident = new File("${outputDir}/consensus_by_confidence/confident").list()
+            def lowConf   = new File("${outputDir}/consensus_by_confidence/low_confidence").list()
+            def noHit     = new File("${outputDir}/consensus_by_confidence/no_hit").list()
+            assert confident?.size() > 0
+            assert lowConf?.size() > 0
+            assert noHit?.size() > 0
+
+            // sample_a and sample_b both clustered and neither's cluster ids
+            // collided in the shared BUILD_REPORT/SORT_CONSENSUS outputs
+            def table = path("${outputDir}/final_report/abundance_table.tsv").text
+            assert table.contains('sample_a')
+            assert table.contains('sample_b')
+
+            assert path("${outputDir}/final_report/run_qc_summary.html").exists()
+            assert new File("${outputDir}/blastdb").exists()
+        }
+
+    }
+
+}

@@ -1,0 +1,60 @@
+nextflow_process {
+
+    name "Test Process MERGE_FASTQ"
+    script "modules/merge_fastq.nf"
+    process "MERGE_FASTQ"
+
+    test("single fastq file is passed through untouched") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'single_sample',
+                    file("${projectDir}/tests/data/reads/sample_b/part_0.fastq.gz")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.merged.size() == 1
+
+            def outFile = process.out.merged[0][1]
+            def inFile  = "${projectDir}/tests/data/reads/sample_b/part_0.fastq.gz"
+            assert path(outFile).linesGzip.size() == path(inFile).linesGzip.size()
+        }
+
+    }
+
+    test("multiple part files are concatenated into one") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'sample_a',
+                    file("${projectDir}/tests/data/reads/sample_a/*.fastq.gz")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.merged.size() == 1
+
+            def outFile = process.out.merged[0][1]
+            def parts = new File("${projectDir}/tests/data/reads/sample_a").listFiles({ f -> f.name.endsWith('.fastq.gz') } as FileFilter)
+            assert parts.size() > 1
+
+            def expectedLines = parts.sum { path(it.path).linesGzip.size() }
+            assert path(outFile).linesGzip.size() == expectedLines
+        }
+
+    }
+
+}

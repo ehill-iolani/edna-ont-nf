@@ -1,0 +1,66 @@
+nextflow_process {
+
+    name "Test Process CUTADAPT"
+    script "modules/cutadapt.nf"
+    process "CUTADAPT"
+
+    test("passes reads through untouched when no primers are configured") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'sample_a_part0',
+                    file("${projectDir}/tests/data/reads/sample_a/part_0.fastq.gz")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            def inCount  = path("${projectDir}/tests/data/reads/sample_a/part_0.fastq.gz").linesGzip.size() / 4
+            def outFile  = process.out.trimmed[0][1]
+            def outCount = path(outFile).linesGzip.size() / 4
+            assert outCount == inCount
+        }
+
+    }
+
+    test("trims primers and discards reads missing them") {
+
+        config "./cutadapt_with_primers.config"
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'primer_test',
+                    file("${projectDir}/tests/data/cutadapt_test.fastq.gz")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+
+            def outLines = path(process.out.trimmed[0][1]).linesGzip
+            def ids  = (0..<outLines.size()).findAll { it % 4 == 0 }.collect { outLines[it] }
+            def seqs = (0..<outLines.size()).findAll { it % 4 == 1 }.collect { outLines[it] }
+
+            // only the read carrying both primers survives --discard-untrimmed
+            assert ids.size() == 1
+            assert ids[0] == '@read_with_primers'
+
+            // and the primers themselves are trimmed off
+            assert !seqs[0].contains('ACGTACGTACGTACGTACGT')
+            assert !seqs[0].contains('TGCATGCATGCATGCATGCA')
+        }
+
+    }
+
+}

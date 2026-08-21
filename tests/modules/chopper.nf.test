@@ -1,0 +1,41 @@
+nextflow_process {
+
+    name "Test Process CHOPPER"
+    script "modules/chopper.nf"
+    process "CHOPPER"
+
+    test("filters reads outside the configured length/quality range") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'chopper_test',
+                    file("${projectDir}/tests/data/chopper_filter_test.fastq.gz")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.filtered.size() == 1
+
+            // fixture is 5 "good" reads + 1 too-short (< min_len=100) + 1
+            // too-low-quality (< min_qual=10) -- only the 5 good reads survive
+            def outLines = path(process.out.filtered[0][1]).linesGzip
+            def outCount = outLines.size() / 4
+            assert outCount == 5
+
+            def ids = (0..<outLines.size()).findAll { it % 4 == 0 }.collect { outLines[it] }
+            assert ids.every { it.startsWith('@good-') }
+
+            // every surviving read must respect --min_len/--max_len (params.min_len=100, params.max_len=2000)
+            def seqLines = (0..<outLines.size()).findAll { it % 4 == 1 }.collect { outLines[it] }
+            assert seqLines.every { it.length() >= 100 && it.length() <= 2000 }
+        }
+
+    }
+
+}

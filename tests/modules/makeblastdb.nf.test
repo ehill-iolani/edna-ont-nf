@@ -1,0 +1,31 @@
+nextflow_process {
+
+    name "Test Process MAKEBLASTDB"
+    script "modules/makeblastdb.nf"
+    process "MAKEBLASTDB"
+
+    test("builds a nucleotide BLAST db from a reference fasta") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = file("${projectDir}/tests/data/test_refs.fasta")
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.db_name[0] == "blastdb"
+
+            def dbFiles = process.out.db_files[0]
+            def names = (dbFiles instanceof List ? dbFiles : [dbFiles]).collect { new File(it.toString()).name }
+            // core index files that exist across BLAST+ versions regardless of -parse_seqids
+            assert names.any { it.endsWith('.nin') }
+            assert names.any { it.endsWith('.nsq') }
+        }
+
+    }
+
+}

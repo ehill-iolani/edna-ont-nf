@@ -1,0 +1,36 @@
+nextflow_process {
+
+    name "Test Process SPOA_CONSENSUS"
+    script "modules/spoa_consensus.nf"
+    process "SPOA_CONSENSUS"
+
+    test("builds a single draft consensus from a synthetic cluster of reads") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = tuple(
+                    'barcode17',
+                    '0',
+                    file("${projectDir}/tests/data/cluster_sample.fastq")
+                )
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.draft.size() == 1
+
+            def draftFasta = process.out.draft[0][2]
+            def text = path(draftFasta).text
+            assert text.startsWith('>')
+
+            // spoa -r 0 reports exactly one consensus sequence, not per-read alignments
+            assert (text =~ />/).size() == 1
+        }
+
+    }
+
+}

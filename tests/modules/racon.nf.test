@@ -1,0 +1,66 @@
+nextflow_process {
+
+    name "Test Process RACON"
+    script "modules/racon.nf"
+    process "RACON"
+
+    setup {
+        run("SPOA_CONSENSUS") {
+            script "modules/spoa_consensus.nf"
+            process {
+                """
+                input[0] = tuple(
+                    'barcode17',
+                    '0',
+                    file("${projectDir}/tests/data/cluster_sample.fastq")
+                )
+                """
+            }
+        }
+        run("MINIMAP2_ALIGN") {
+            script "modules/minimap2_align.nf"
+            process {
+                """
+                input[0] = SPOA_CONSENSUS.out.draft.map { sample, cluster_id, draft ->
+                    tuple(sample, cluster_id, draft, file("${projectDir}/tests/data/cluster_sample.fastq"))
+                }
+                """
+            }
+        }
+    }
+
+    test("polishes the spoa draft against the aligned reads") {
+
+        when {
+            params { }
+            process {
+                """
+                input[0] = MINIMAP2_ALIGN.out.aligned
+                """
+            }
+        }
+
+        then {
+            assert process.success
+            assert process.out.polished.size() == 1
+
+            def polishedFasta = process.out.polished[0][2]
+            // filename is sample-prefixed, not just cluster_id -- cluster ids
+            // repeat across samples and collide once collected in BUILD_REPORT
+            assert polishedFasta.toString().endsWith('barcode17.0.racon.fasta')
+
+            def text = path(polishedFasta).text
+            assert (text =~ />/).size() == 1
+
+            // racon always names the record "Consensus" and regenerates its
+            // own description, so the sample/cluster-size header has to be
+            // stamped on after racon runs, not before -- assert it landed
+            def header = text.readLines()[0]
+            assert header.startsWith('>barcode17_0 ')
+            assert header.contains('sample=barcode17')
+            assert header.contains('cluster_size=30')  // reads in tests/data/cluster_sample.fastq
+        }
+
+    }
+
+}
