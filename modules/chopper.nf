@@ -2,7 +2,7 @@ process CHOPPER {
     tag "$sample"
     label 'process_low'
     container 'quay.io/biocontainers/chopper:0.7.0--hdcf5f25_0'
-    publishDir "${params.outdir}/${sample}/01_filtered", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/01_filtered" }, mode: 'copy')
 
     input:
     tuple val(sample), path(fastq)

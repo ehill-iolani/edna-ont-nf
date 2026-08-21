@@ -2,7 +2,7 @@ process ISONCLUST {
     tag "$sample"
     label 'process_medium'
     container 'quay.io/biocontainers/isonclust:0.0.6.1--py_0'
-    publishDir "${params.outdir}/${sample}/03_clusters", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/03_clusters" }, mode: 'copy')
 
     input:
     tuple val(sample), path(fastq)

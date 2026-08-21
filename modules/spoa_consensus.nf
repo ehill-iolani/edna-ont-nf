@@ -2,7 +2,7 @@ process SPOA_CONSENSUS {
     tag "${sample}:${cluster_id}"
     label 'process_low'
     container 'quay.io/biocontainers/spoa:4.1.4--h077b44d_3'
-    publishDir "${params.outdir}/${sample}/04_draft/${cluster_id}", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/04_draft/${cluster_id}" }, mode: 'copy')
 
     input:
     tuple val(sample), val(cluster_id), path(cluster_fastq)

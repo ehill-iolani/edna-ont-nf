@@ -5,7 +5,7 @@ process MEDAKA {
     // build is amd64-only and its TensorFlow backend SIGILLs under Docker's
     // amd64 emulation on Apple Silicon; this one has a native arm64 build too
     container 'ontresearch/medaka:v1.11.3'
-    publishDir "${params.outdir}/${sample}/06_consensus", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/06_consensus" }, mode: 'copy')
 
     input:
     tuple val(sample), val(cluster_id), path(racon_fasta), path(cluster_fastq)

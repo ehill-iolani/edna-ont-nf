@@ -2,7 +2,7 @@ process RACON {
     tag "${sample}:${cluster_id}"
     label 'process_medium'
     container 'quay.io/biocontainers/racon:1.5.0--h21ec9f0_2'
-    publishDir "${params.outdir}/${sample}/05_racon/${cluster_id}", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/05_racon/${cluster_id}" }, mode: 'copy')
 
     input:
     tuple val(sample), val(cluster_id), path(draft), path(cluster_fastq), path(sam)

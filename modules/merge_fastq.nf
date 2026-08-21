@@ -1,7 +1,7 @@
 process MERGE_FASTQ {
     tag "$sample"
     label 'process_low'
-    publishDir "${params.outdir}/${sample}/00_merged", mode: 'copy'
+    publishDir(path: { "${params.outdir}/${sample}/00_merged" }, mode: 'copy')
 
     input:
     tuple val(sample), path(fastq)
