@@ -8,7 +8,7 @@ results/
 # run-specific, and not part of the pipeline itself; point --input /
 # --taxdb at your own copies. A small synthetic dataset for -profile test
 # lives under tests/data/ instead, and is tracked normally.
-data/
+/data/
 assets/*.fasta
 assets/*.csv
 
