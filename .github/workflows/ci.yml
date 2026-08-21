@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  nf-test:
+  test-profile:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,8 +24,5 @@ jobs:
         with:
           version: "latest-stable"
 
-      - name: Install nf-test
-        uses: nf-core/setup-nf-test@v1
-
-      - name: Run nf-test suite
-        run: nf-test test --ci
+      - name: Run pipeline against the synthetic test dataset
+        run: nextflow run main.nf -profile test,docker
