@@ -69,8 +69,8 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--enable_medaka` | `false` | Use medaka-polished consensus instead of the racon consensus downstream |
 | `--min_pident` | `90` | BLAST hits below this %identity are flagged `low_identity`, not dropped |
 
-All defaults live in `nextflow.config`, not `main.nf` -- see the comments
-there if you're adding a new one.
+All defaults live in `nextflow.config`, not `main.nf` (see the comments
+there if you're adding a new one).
 
 ## Pipeline
 
@@ -141,10 +141,8 @@ nextflow run main.nf -profile test,docker
 
 This populates `results/` exactly like a normal run (see Output layout
 above), just against the small checked-in fixtures instead of your own data
--- eyeball the abundance table, poke around `consensus_by_confidence/`, etc.
-CI (`.github/workflows/ci.yml`) runs this same command on every push and
-pull request against `main`.
+(eyeball the abundance table, poke around `consensus_by_confidence/`, etc).
 
 Note: the `medaka` container is ONT's own multi-arch image
-(`ontresearch/medaka`), not biocontainers -- the biocontainers build is
+(`ontresearch/medaka`), not biocontainers. The biocontainers build is
 amd64-only and SIGILLs under Docker's emulation on Apple Silicon.
