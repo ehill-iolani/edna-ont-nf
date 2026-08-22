@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/ehill-iolani/edna-ont-nf/main/nextflow_schema.json",
+  "title": "edna-ont-nf pipeline parameters",
+  "description": "ONT eDNA amplicon classification pipeline: quality-aware clustering (isONclust) + spoa/racon/medaka consensus + reference/BLAST taxonomy assignment.",
+  "type": "object",
+  "definitions": {
+    "input_output_options": {
+      "title": "Input/output options",
+      "type": "object",
+      "description": "Define where the pipeline should find input data and save output data.",
+      "required": ["input", "taxdb"],
+      "properties": {
+        "input": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "mimetype": "text/csv",
+          "pattern": "^\\S+\\.csv$",
+          "description": "Samplesheet CSV with two columns: sample,fastq.",
+          "help_text": "Each row maps a sample name to a fastq file or glob (e.g. `data/barcode17/*.fastq.gz`). A glob may match multiple part-files -- they're merged into one file per sample before filtering. Glob paths resolve relative to the launch directory, not the samplesheet's own location."
+        },
+        "taxdb": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "pattern": "^\\S+\\.(fa|fasta|fna)(\\.gz)?$",
+          "description": "Reference sequences FASTA.",
+          "help_text": "A BLAST db is (re)built from this file at the start of every run, so the reference set can be updated without a separate makeblastdb step."
+        },
+        "outdir": {
+          "type": "string",
+          "format": "directory-path",
+          "default": "results",
+          "description": "Output directory where results are published."
+        }
+      }
+    },
+    "primer_trimming": {
+      "title": "Primer trimming",
+      "type": "object",
+      "description": "cutadapt primer trimming -- skipped entirely if left unset.",
+      "properties": {
+        "fwd_primer": {
+          "type": "string",
+          "description": "Forward primer sequence."
+        },
+        "rev_primer": {
+          "type": "string",
+          "description": "Reverse primer sequence."
+        }
+      }
+    },
+    "read_filtering": {
+      "title": "Read filtering",
+      "type": "object",
+      "description": "chopper length/quality filtering thresholds.",
+      "properties": {
+        "min_len": {
+          "type": "integer",
+          "default": 150,
+          "minimum": 1,
+          "description": "Minimum read length."
+        },
+        "max_len": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 1,
+          "description": "Maximum read length."
+        },
+        "min_qual": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 0,
+          "description": "Minimum average read quality (Phred score)."
+        }
+      }
+    },
+    "clustering": {
+      "title": "Clustering",
+      "type": "object",
+      "description": "isONclust de novo clustering.",
+      "properties": {
+        "cluster_id": {
+          "type": "number",
+          "default": 0.86,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "isONclust similarity threshold.",
+          "help_text": "Tune per amplicon/primer set -- too loose merges distinct species into one cluster, too strict splits one species into many clusters."
+        },
+        "min_cluster": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "description": "Minimum reads in a cluster required to attempt consensus."
+        }
+      }
+    },
+    "consensus_polishing": {
+      "title": "Consensus polishing",
+      "type": "object",
+      "description": "spoa/racon (and optionally medaka) consensus building.",
+      "properties": {
+        "enable_medaka": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the medaka-polished consensus instead of the racon consensus downstream.",
+          "help_text": "Off by default: the racon consensus is used directly as the final consensus for BLAST and reporting. When enabled, MEDAKA runs as an additional ONT-specific polishing step and its output replaces the racon consensus everywhere downstream."
+        }
+      }
+    },
+    "taxonomy_assignment": {
+      "title": "Taxonomy assignment",
+      "type": "object",
+      "description": "BLAST-based taxonomy assignment and confidence flagging.",
+      "properties": {
+        "min_pident": {
+          "type": "number",
+          "default": 90,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "BLAST %identity threshold for a confident call.",
+          "help_text": "Hits below this identity are flagged low_identity rather than dropped, and routed to consensus_by_confidence/low_confidence/ instead of confident/. Clusters with no BLAST hit at all are flagged no_hit."
+        }
+      }
+    },
+    "generic_options": {
+      "title": "Generic options",
+      "type": "object",
+      "description": "Less common options, typically left at their defaults.",
+      "properties": {
+        "help": {
+          "type": "boolean",
+          "default": false,
+          "description": "Display the help message and exit.",
+          "hidden": true
+        },
+        "tracedir": {
+          "type": "string",
+          "format": "directory-path",
+          "default": "results/pipeline_info",
+          "description": "Directory for the Nextflow timeline/report/trace files.",
+          "hidden": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    { "$ref": "#/definitions/input_output_options" },
+    { "$ref": "#/definitions/primer_trimming" },
+    { "$ref": "#/definitions/read_filtering" },
+    { "$ref": "#/definitions/clustering" },
+    { "$ref": "#/definitions/consensus_polishing" },
+    { "$ref": "#/definitions/taxonomy_assignment" },
+    { "$ref": "#/definitions/generic_options" }
+  ]
+}
