@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft-07/schema",
   "$id": "https://raw.githubusercontent.com/ehill-iolani/edna-ont-nf/main/nextflow_schema.json",
   "title": "edna-ont-nf pipeline parameters",
-  "description": "ONT eDNA amplicon classification pipeline: quality-aware clustering (isONclust) + spoa/racon/medaka consensus + reference/BLAST taxonomy assignment.",
+  "description": "ONT mixed-amplicon classification pipeline: quality-aware clustering (isONclust) + spoa/racon/medaka consensus + reference/BLAST taxonomy assignment.",
   "type": "object",
-  "definitions": {
+  "$defs": {
     "input_output_options": {
       "title": "Input/output options",
       "type": "object",
@@ -43,11 +43,15 @@
       "properties": {
         "fwd_primer": {
           "type": "string",
-          "description": "Forward primer sequence."
+          "pattern": "^[ACGTUWSMKRYBDHVNacgtuwsmkrybdhvn]+$",
+          "description": "Forward primer sequence.",
+          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive."
         },
         "rev_primer": {
           "type": "string",
-          "description": "Reverse primer sequence."
+          "pattern": "^[ACGTUWSMKRYBDHVNacgtuwsmkrybdhvn]+$",
+          "description": "Reverse primer sequence.",
+          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive."
         }
       }
     },
@@ -66,7 +70,8 @@
           "type": "integer",
           "default": 300,
           "minimum": 1,
-          "description": "Maximum read length."
+          "description": "Maximum read length.",
+          "help_text": "Must be greater than min_len."
         },
         "min_qual": {
           "type": "integer",
@@ -147,12 +152,12 @@
     }
   },
   "allOf": [
-    { "$ref": "#/definitions/input_output_options" },
-    { "$ref": "#/definitions/primer_trimming" },
-    { "$ref": "#/definitions/read_filtering" },
-    { "$ref": "#/definitions/clustering" },
-    { "$ref": "#/definitions/consensus_polishing" },
-    { "$ref": "#/definitions/taxonomy_assignment" },
-    { "$ref": "#/definitions/generic_options" }
+    { "$ref": "#/$defs/input_output_options" },
+    { "$ref": "#/$defs/primer_trimming" },
+    { "$ref": "#/$defs/read_filtering" },
+    { "$ref": "#/$defs/clustering" },
+    { "$ref": "#/$defs/consensus_polishing" },
+    { "$ref": "#/$defs/taxonomy_assignment" },
+    { "$ref": "#/$defs/generic_options" }
   ]
 }
