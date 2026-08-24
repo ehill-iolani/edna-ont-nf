@@ -79,7 +79,7 @@ flowchart TD
     taxdb[/"--taxdb refs.fasta"/] --> MAKEBLASTDB
     MAKEBLASTDB --> blastdb[("BLAST db")]
 
-    reads[/"--input samplesheet.csv"/] -->|"sample,fastq rows"| fastqs[/"fastq(.gz) files\n(per-sample, referenced by each row)"/]
+    reads[/"--input samplesheet.csv"/] -->|"sample,fastq rows"| fastqs[/"fastq(.gz) files<br>per-sample, referenced by each row"/]
     fastqs --> MERGE_FASTQ --> CHOPPER --> CUTADAPT --> ISONCLUST
     ISONCLUST -->|"per cluster"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
 
