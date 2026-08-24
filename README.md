@@ -74,6 +74,31 @@ there if you're adding a new one).
 
 ## Pipeline
 
+```mermaid
+flowchart TD
+    taxdb[/"--taxdb refs.fasta"/] --> MAKEBLASTDB
+    MAKEBLASTDB --> blastdb[("BLAST db")]
+
+    reads[/"--input samplesheet.csv"/] -->|"sample,fastq rows"| fastqs[/"fastq(.gz) files\n(per-sample, referenced by each row)"/]
+    fastqs --> MERGE_FASTQ --> CHOPPER --> CUTADAPT --> ISONCLUST
+    ISONCLUST -->|"per cluster"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
+
+    RACON --> medaka_check{"--enable_medaka?"}
+    medaka_check -->|"false (default)"| consensus["consensus fasta"]
+    medaka_check -->|"true"| MEDAKA --> consensus
+
+    consensus --> BLAST_TAX
+    blastdb --> BLAST_TAX
+
+    BLAST_TAX --> BUILD_REPORT
+    BLAST_TAX --> SORT_CONSENSUS
+
+    BUILD_REPORT --> report[["final_report/"]]
+    SORT_CONSENSUS --> confident[["confident/"]]
+    SORT_CONSENSUS --> lowconf[["low_confidence/"]]
+    SORT_CONSENSUS --> nohit[["no_hit/"]]
+```
+
 1. `MAKEBLASTDB` -- build a BLAST db from `--taxdb` (once per run)
 2. `MERGE_FASTQ` -- merge multi-part fastq(.gz) files per sample
 3. `CHOPPER` -- length/quality filter
@@ -122,6 +147,7 @@ workflows/edna_amplicon.nf  subworkflow chaining all steps
 modules/*.nf                one process per tool, one container each
 bin/build_report.py         abundance table + QC html
 nextflow.config              param defaults, profiles, resource labels
+nextflow_schema.json         JSON Schema describing every --param (for UIs/validation tooling)
 conf/test.config             -profile test overrides (small synthetic dataset)
 assets/                      your own local samplesheet/taxdb go here (gitignored)
 tests/data/                  small synthetic dataset used by -profile test
