@@ -37,7 +37,8 @@ workflow EDNA_AMPLICON {
     // ISONCLUST emits one fastq per cluster per sample; flatten and tag
     clusters_ch = ISONCLUST.out.clusters
         .flatMap { sample, cluster_fastqs ->
-            cluster_fastqs.collect { fq -> tuple(sample, fq.baseName, fq) }
+            def files = cluster_fastqs instanceof List ? cluster_fastqs : [cluster_fastqs]
+            files.collect { fq -> tuple(sample, fq.baseName, fq) }
         }
 
     // 6. draft consensus per cluster
