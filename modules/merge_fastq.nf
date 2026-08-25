@@ -14,12 +14,7 @@ process MERGE_FASTQ {
     // (fastq_pass/barcodeNN/*.fastq.gz); cat them into one file per sample
     // so downstream steps don't need to care how many parts came in.
     def infiles = fastq instanceof List ? fastq : [fastq]
-    if (infiles.size() > 1)
         """
         cat ${infiles.join(' ')} > ${sample}.merged.fastq.gz
-        """
-    else
-        """
-        ln -s ${infiles[0]} ${sample}.merged.fastq.gz
         """
 }
