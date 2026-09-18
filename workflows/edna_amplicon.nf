@@ -1,6 +1,7 @@
 include { MAKEBLASTDB      } from '../modules/makeblastdb.nf'
 include { MERGE_FASTQ      } from '../modules/merge_fastq.nf'
 include { CHOPPER          } from '../modules/chopper.nf'
+include { READ_STATS; READ_STATS_REPORT } from '../modules/read_stats.nf'
 include { CUTADAPT         } from '../modules/cutadapt.nf'
 include { ISONCLUST        } from '../modules/isonclust.nf'
 include { SPOA_CONSENSUS   } from '../modules/spoa_consensus.nf'
@@ -27,6 +28,16 @@ workflow EDNA_AMPLICON {
 
     // 3. length/quality filter
     CHOPPER(MERGE_FASTQ.out.merged)
+
+    // 3b. read length / Q-score summary, before vs. after filtering -- a
+    // side branch, nothing downstream depends on it
+    if (params.enable_read_stats) {
+        READ_STATS(MERGE_FASTQ.out.merged.join(CHOPPER.out.filtered))
+        READ_STATS_REPORT(
+            READ_STATS.out.stats.map { sample, stats, hist -> stats }.collect(),
+            READ_STATS.out.stats.map { sample, stats, hist -> hist }.collect()
+        )
+    }
 
     // 4. primer trimming (skipped internally if no primers supplied)
     CUTADAPT(CHOPPER.out.filtered)
