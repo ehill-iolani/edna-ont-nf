@@ -11,6 +11,7 @@ results/
 /data/
 assets/*.fasta
 assets/*.csv
+assets
 
 # personal/local
 scratch.sh
