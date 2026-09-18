@@ -102,6 +102,7 @@ flowchart TD
 1. `MAKEBLASTDB` -- build a BLAST db from `--taxdb` (once per run)
 2. `MERGE_FASTQ` -- merge multi-part fastq(.gz) files per sample
 3. `CHOPPER` -- length/quality filter
+   - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
 4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
 5. `ISONCLUST` -- quality-aware de novo clustering
 6. `SPOA_CONSENSUS` -- draft consensus per cluster
@@ -136,6 +137,9 @@ results/
   final_report/
     abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, flag_reason
     run_qc_summary.html        cluster counts, per-sample flagged counts
+    read_qc_summary.html       read length / Q-score, before vs. after filtering
+    read_stats.tsv             the same numbers per sample and stage
+    read_length_qscore_hist.tsv  histogram bins behind the plots
   pipeline_info/                Nextflow timeline/report/trace
 ```
 
@@ -146,6 +150,7 @@ main.nf                     entry point, samplesheet parsing, --help
 workflows/edna_amplicon.nf  subworkflow chaining all steps
 modules/*.nf                one process per tool, one container each
 bin/build_report.py         abundance table + QC html
+bin/read_stats.py           read length/Q-score summary (stdlib only; also runs stand-alone)
 nextflow.config              param defaults, profiles, resource labels
 nextflow_schema.json         JSON Schema describing every --param (for UIs/validation tooling)
 conf/test.config             -profile test overrides (small synthetic dataset)

@@ -9,6 +9,8 @@ nextflow.enable.dsl = 2
 
 include { EDNA_AMPLICON } from './workflows/edna_amplicon.nf'
 include { MERGE_FASTQ   } from './modules/merge_fastq.nf'
+include { CHOPPER       } from './modules/chopper.nf'
+include { READ_STATS; READ_STATS_REPORT } from './modules/read_stats.nf'
 
 // ---- top-level params (override via -params-file or --flag) ----
 // min_len / max_len / min_qual / cluster_id / min_cluster / enable_medaka /
@@ -37,6 +39,7 @@ def helpMessage() {
     Key optional:
       --fwd_primer / --rev_primer   primer sequences for cutadapt trimming
       --min_len / --max_len / --min_qual   chopper filtering thresholds
+      --enable_read_stats   read length/Q-score summary before vs. after filtering (default ${params.enable_read_stats})
       --cluster_id   isONclust/vsearch similarity threshold (default ${params.cluster_id})
       --min_cluster  minimum reads to polish a cluster (default ${params.min_cluster})
       --enable_medaka   use medaka-polished consensus instead of racon consensus (default ${params.enable_medaka})
@@ -79,4 +82,22 @@ workflow MERGE_ONLY {
         exit 1
     }
     MERGE_FASTQ(samplesheetToChannel(params.input))
+}
+
+// Read QC only: merge -> chopper -> before/after length & Q-score summary, no
+// clustering/taxonomy (so no --taxdb needed). Handy for picking
+// --min_len/--max_len/--min_qual before committing to a full run:
+//   nextflow run main.nf -entry READ_QC_ONLY --input samplesheet.csv --min_qual 12 -profile docker
+workflow READ_QC_ONLY {
+    if (!params.input) {
+        log.error "READ_QC_ONLY requires --input samplesheet.csv"
+        exit 1
+    }
+    MERGE_FASTQ(samplesheetToChannel(params.input))
+    CHOPPER(MERGE_FASTQ.out.merged)
+    READ_STATS(MERGE_FASTQ.out.merged.join(CHOPPER.out.filtered))
+    READ_STATS_REPORT(
+        READ_STATS.out.stats.map { sample, stats, hist -> stats }.collect(),
+        READ_STATS.out.stats.map { sample, stats, hist -> hist }.collect()
+    )
 }
