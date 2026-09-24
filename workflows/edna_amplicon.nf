@@ -17,6 +17,7 @@ workflow EDNA_AMPLICON {
     take:
     reads_ch    // tuple(sample, fastq)
     ref_fasta   // path to reference sequences fasta for BLAST taxonomy
+    taxdump     // NCBI taxdump dir/tar.gz, or [] to skip lineage columns
 
     main:
     // 1. build a BLAST db from the reference fasta (once per run, independent
@@ -77,7 +78,8 @@ workflow EDNA_AMPLICON {
     // 10. per-run abundance table + QC report
     BUILD_REPORT(
         BLAST_TAX.out.hits.map { sample, cluster_id, hits -> hits }.collect(),
-        consensus_ch.map { sample, cluster_id, fasta -> fasta }.collect()
+        consensus_ch.map { sample, cluster_id, fasta -> fasta }.collect(),
+        taxdump
     )
 
     // 11. gather every consensus fasta into confident / low_confidence / no_hit

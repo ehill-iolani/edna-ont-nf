@@ -61,6 +61,7 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 |---|---|---|
 | `--input` | *(required)* | Samplesheet CSV (`sample,fastq`) |
 | `--taxdb` | *(required)* | Reference sequences FASTA; a BLAST db is built from this each run |
+| `--taxdump` | `null` | NCBI taxdump directory or `taxdump.tar.gz` ([download](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz)); adds `taxid` + `superkingdom`...`species` columns to `abundance_table.tsv`, resolved from the best hit's binomial |
 | `--outdir` | `results` | Output directory |
 | `--fwd_primer` / `--rev_primer` | `null` | Primer sequences for cutadapt trimming; trimming is skipped if unset |
 | `--min_len` / `--max_len` / `--min_qual` | `150` / `300` / `10` | chopper length/quality filtering thresholds |
@@ -135,7 +136,7 @@ results/
     low_confidence/            best BLAST hit < --min_pident
     no_hit/                    no BLAST hit at all
   final_report/
-    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, flag_reason
+    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, full lineage (with --taxdump), flag_reason
     run_qc_summary.html        cluster counts, per-sample flagged counts
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage

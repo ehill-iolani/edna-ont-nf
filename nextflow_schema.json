@@ -28,6 +28,13 @@
           "description": "Reference sequences FASTA.",
           "help_text": "A BLAST db is (re)built from this file at the start of every run, so the reference set can be updated without a separate makeblastdb step."
         },
+        "taxdump": {
+          "type": "string",
+          "format": "path",
+          "exists": true,
+          "description": "NCBI taxonomy dump (directory or taxdump.tar.gz). Optional.",
+          "help_text": "When set, abundance_table.tsv gains taxid, superkingdom, kingdom, phylum, class, order, family, genus and species columns, resolved from each best hit's binomial (first two words of the reference header after the accession). Download from https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz."
+        },
         "outdir": {
           "type": "string",
           "format": "directory-path",

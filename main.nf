@@ -23,6 +23,7 @@ params.outdir       = "results"
 params.fwd_primer   = null
 params.rev_primer   = null
 params.taxdb        = null   // path to reference sequences FASTA; a BLAST db is built from this at runtime
+params.taxdump      = null   // optional NCBI taxdump dir or taxdump.tar.gz; adds taxid + full lineage columns to abundance_table.tsv
 params.help         = false
 
 def helpMessage() {
@@ -37,6 +38,7 @@ def helpMessage() {
       --taxdb       Reference sequences FASTA (BLAST db is built from this each run)
 
     Key optional:
+      --taxdump     NCBI taxdump dir or taxdump.tar.gz -> full lineage (superkingdom..species) in abundance_table.tsv
       --fwd_primer / --rev_primer   primer sequences for cutadapt trimming
       --min_len / --max_len / --min_qual   chopper filtering thresholds
       --enable_read_stats   read length/Q-score summary before vs. after filtering (default ${params.enable_read_stats})
@@ -71,7 +73,9 @@ workflow {
 
     taxdb_fasta_ch = Channel.fromPath(params.taxdb, checkIfExists: true)
 
-    EDNA_AMPLICON(samplesheetToChannel(params.input), taxdb_fasta_ch)
+    taxdump_ch = params.taxdump ? Channel.value(file(params.taxdump, checkIfExists: true)) : Channel.value([])
+
+    EDNA_AMPLICON(samplesheetToChannel(params.input), taxdb_fasta_ch, taxdump_ch)
 }
 
 // dev/debug entry points -- run a single step in isolation, e.g.:
