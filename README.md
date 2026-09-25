@@ -136,7 +136,7 @@ results/
     low_confidence/            best BLAST hit < --min_pident
     no_hit/                    no BLAST hit at all
   final_report/
-    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, full lineage (with --taxdump), flag_reason
+    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason
     run_qc_summary.html        cluster counts, per-sample flagged counts
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage
