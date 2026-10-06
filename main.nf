@@ -47,7 +47,7 @@ def helpMessage() {
       --merge_id     identity at which per-cluster consensus sequences are merged, 0 to skip (default ${params.merge_id})
       --enable_medaka   use medaka-polished consensus instead of racon consensus (default ${params.enable_medaka})
       --min_pident   BLAST %identity below which a hit is low-confidence (default ${params.min_pident})
-      --min_abundance      merged clusters with fewer reads are flagged low_abundance, not dropped (default ${params.min_abundance})
+      --min_abundance      merged clusters with fewer reads get low_abundance=true in the abundance table, not dropped (default ${params.min_abundance})
       --min_rel_abundance  ...or with a smaller fraction of the sample's clustered reads, 0 = off (default ${params.min_rel_abundance})
     """.stripIndent()
 }

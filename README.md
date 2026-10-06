@@ -70,8 +70,8 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--merge_id` | `0.97` | Identity at which per-cluster consensus sequences are merged (second vsearch pass, `MERGE_CONSENSUS`); `0` skips the merge |
 | `--enable_medaka` | `false` | Use medaka-polished consensus instead of the racon consensus downstream |
 | `--min_pident` | `90` | BLAST hits below this %identity are flagged `low_identity`, not dropped |
-| `--min_abundance` | `20` | Merged clusters with fewer reads than this are flagged `low_abundance`, not dropped (`0` = off) |
-| `--min_rel_abundance` | `0` | Merged clusters holding a smaller fraction of their sample's clustered reads than this are flagged `low_abundance`, e.g. `0.001` = under 0.1% (`0` = off) |
+| `--min_abundance` | `20` | Merged clusters with fewer reads than this get `low_abundance = true` in the abundance table, not dropped (`0` = off) |
+| `--min_rel_abundance` | `0` | Merged clusters holding a smaller fraction of their sample's clustered reads than this get `low_abundance = true`, e.g. `0.001` = under 0.1% (`0` = off) |
 
 All defaults live in `nextflow.config`, not `main.nf` (see the comments
 there if you're adding a new one).
@@ -144,7 +144,7 @@ results/
     low_confidence/            best BLAST hit < --min_pident
     no_hit/                    no BLAST hit at all
   final_report/
-    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason (`no_hit`, `low_identity` and/or `low_abundance`, `;`-joined)
+    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason (`no_hit` or `low_identity`, from the BLAST call), low_abundance (`true`/`false`, from `--min_abundance` / `--min_rel_abundance`; independent of flag_reason)
     run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage

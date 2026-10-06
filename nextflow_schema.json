@@ -154,16 +154,16 @@
           "type": "integer",
           "default": 20,
           "minimum": 0,
-          "description": "Merged clusters with fewer reads than this are flagged low_abundance.",
-          "help_text": "Applied to the merged cluster_size (reads from every cluster folded into it by merge_id). Flag-only: the cluster is still BLASTed and reported, with low_abundance in flag_reason (joined with ';' to any no_hit/low_identity flag). Does not affect the consensus_by_confidence folders. 0 disables."
+          "description": "Merged clusters with fewer reads than this are marked low_abundance.",
+          "help_text": "Applied to the merged cluster_size (reads from every cluster folded into it by merge_id). Mark-only: the cluster is still BLASTed and reported, with true in the abundance table's low_abundance column. flag_reason is unaffected (it stays '', no_hit or low_identity), and so are the consensus_by_confidence folders. 0 disables."
         },
         "min_rel_abundance": {
           "type": "number",
           "default": 0,
           "minimum": 0,
           "maximum": 1,
-          "description": "Merged clusters holding a smaller fraction of their sample's clustered reads than this are flagged low_abundance.",
-          "help_text": "The depth-independent counterpart of min_abundance: 0.001 flags anything under 0.1% of the sample's clustered reads, however many reads the barcode has. A cluster is flagged if it fails either cutoff. 0 disables."
+          "description": "Merged clusters holding a smaller fraction of their sample's clustered reads than this are marked low_abundance.",
+          "help_text": "The depth-independent counterpart of min_abundance: 0.001 flags anything under 0.1% of the sample's clustered reads, however many reads the barcode has. A cluster is marked if it fails either cutoff. 0 disables."
         }
       }
     },

@@ -155,10 +155,10 @@ def main():
     ap.add_argument("--min-pident", type=float, default=90,
                      help="hits below this identity are flagged low_identity, not dropped")
     ap.add_argument("--min-abundance", type=int, default=0,
-                     help="merged clusters with fewer reads than this are flagged low_abundance, not dropped")
+                     help="merged clusters with fewer reads than this get low_abundance=true, not dropped")
     ap.add_argument("--min-rel-abundance", type=float, default=0,
                      help="merged clusters holding a smaller fraction of their sample's clustered reads "
-                          "than this are flagged low_abundance, not dropped")
+                          "than this get low_abundance=true, not dropped")
     args = ap.parse_args()
 
     hits_df = load_hits(args.hits)
@@ -188,21 +188,21 @@ def main():
     low_pident = best["pident"].notna() & (best["pident"] < args.min_pident)
     best.loc[low_pident & (best["flag_reason"] == ""), "flag_reason"] = "low_identity"
 
-    # ...and for being thinly supported. This is judged on the *merged* cluster
-    # size (reads from every cluster folded into this one), so a species split
-    # into several small read clusters isn't penalised for the split. The
-    # relative form is a fraction of the sample's clustered reads, which keeps
-    # the cutoff meaningful across barcodes of very different depth. Unlike the
-    # two flags above this is independent of the BLAST call, so it is appended
-    # (e.g. "low_identity;low_abundance") rather than taking precedence.
+    # Thin support is a separate axis from the BLAST call above, so it gets its
+    # own true/false column rather than another flag_reason value: flag_reason
+    # stays exactly '' | 'no_hit' | 'low_identity', which downstream readers
+    # (e.g. the web frontend) take as the whole story and use as a taxon label.
+    # Judged on the *merged* cluster size (reads from every cluster folded into
+    # this one), so a species split into several small read clusters isn't
+    # penalised for the split. The relative form is a fraction of the sample's
+    # clustered reads, which keeps the cutoff meaningful across barcodes of
+    # very different depth.
     sample_total = best.groupby("sample")["cluster_size"].transform("sum")
-    low_abundance = best["cluster_size"].notna() & (
+    is_low_abundance = best["cluster_size"].notna() & (
         (best["cluster_size"] < args.min_abundance)
         | (best["cluster_size"] / sample_total < args.min_rel_abundance)
     )
-    best.loc[low_abundance, "flag_reason"] = best.loc[low_abundance, "flag_reason"].map(
-        lambda r: f"{r};low_abundance" if r else "low_abundance"
-    )
+    best["low_abundance"] = is_low_abundance.map({True: "true", False: "false"})
 
     tax_cols = []
     if args.taxdump:
@@ -210,21 +210,20 @@ def main():
         tax_cols = ["taxid"] + RANKS
 
     best = best[["seq_id", "sample", "cluster_size", "subject_id", "pident",
-                 "length", "evalue", "bitscore", "stitle", "tied_taxa"] + tax_cols + ["flag_reason"]]
+                 "length", "evalue", "bitscore", "stitle", "tied_taxa"] + tax_cols + ["flag_reason", "low_abundance"]]
     best.to_csv(args.out_table, sep="\t", index=False)
 
-    # "flagged for review" is the BLAST-confidence flags; low_abundance is
-    # counted separately since it says how much support a call has, not
-    # whether the call itself is doubtful
-    best["_review"] = best["flag_reason"].str.contains("no_hit|low_identity")
-    best["_low_abundance"] = best["flag_reason"].str.contains("low_abundance")
+    # "flagged" is the BLAST-confidence flag; low_abundance is counted
+    # separately since it says how much support a call has, not whether the
+    # call itself is doubtful
     n_clusters = best.shape[0]
-    n_flagged = best["_review"].sum()
-    n_low_abundance = best["_low_abundance"].sum()
+    n_flagged = (best["flag_reason"] != "").sum()
+    n_low_abundance = (best["low_abundance"] == "true").sum()
     per_sample = (
         best.groupby("sample")
-        .agg(clusters=("seq_id", "count"), flagged=("_review", "sum"),
-             low_abundance=("_low_abundance", "sum"))
+        .agg(clusters=("seq_id", "count"),
+             flagged=("flag_reason", lambda s: (s != "").sum()),
+             low_abundance=("low_abundance", lambda s: (s == "true").sum()))
         .reset_index()
     )
 
@@ -238,7 +237,7 @@ def main():
         if args.min_rel_abundance:
             cutoffs.append(f"&lt; {args.min_rel_abundance:g} of the sample's clustered reads")
         if cutoffs:
-            fh.write(f"<p>Clusters flagged low_abundance ({' or '.join(cutoffs)}): {n_low_abundance}</p>")
+            fh.write(f"<p>Clusters marked low_abundance ({' or '.join(cutoffs)}): {n_low_abundance}</p>")
         fh.write("<h3>Per-sample</h3>")
         fh.write(per_sample.to_html(index=False))
         fh.write("</body></html>")
