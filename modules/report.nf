@@ -21,6 +21,8 @@ process BUILD_REPORT {
         --out-table abundance_table.tsv \\
         --out-html run_qc_summary.html \\
         --min-pident ${params.min_pident} \\
+        --min-abundance ${params.min_abundance} \\
+        --min-rel-abundance ${params.min_rel_abundance} \\
         ${taxdump_arg}
     """
 }

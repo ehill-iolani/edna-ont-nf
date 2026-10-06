@@ -1,7 +1,7 @@
 # edna-ont-nf
 
 A Nextflow (DSL2) pipeline for classifying Oxford Nanopore amplicon eDNA data:
-quality-aware clustering (isONclust) + spoa/racon/medaka consensus +
+vsearch identity clustering + spoa/racon/medaka consensus +
 reference/BLAST taxonomy assignment. Written as a modern replacement for
 [decona](https://github.com/Saskia-Oosterbroek/decona).
 
@@ -11,7 +11,7 @@ reference/BLAST taxonomy assignment. Written as a modern replacement for
 | (implicit) | `MERGE_FASTQ` | Dorado/MinKNOW split each barcode into many part-files; merged into one fastq per sample before filtering |
 | NanoFilt | chopper | same author, actively maintained, faster |
 | cutadapt | cutadapt | unchanged, still solid |
-| CD-HIT clustering | isONclust | quality-aware clustering, not a blind identity cutoff |
+| CD-HIT clustering | `VSEARCH_CLUSTER` | vsearch greedy identity clustering: same approach, faster, and strand-aware (reads in either orientation land in one cluster) |
 | minimap2 + Racon | `MINIMAP2_ALIGN` + `RACON` | split into two processes -- the racon biocontainer doesn't ship minimap2 |
 | Medaka | Medaka (optional, off by default) | racon consensus is used directly unless `--enable_medaka` is set |
 | BLAST (optional) | BLAST (default) + explicit no-hit/low-identity flagging | undescribed/endemic sequences shouldn't silently drop |
@@ -65,10 +65,13 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--outdir` | `results` | Output directory |
 | `--fwd_primer` / `--rev_primer` | `null` | Primer sequences for cutadapt trimming; trimming is skipped if unset |
 | `--min_len` / `--max_len` / `--min_qual` | `150` / `300` / `10` | chopper length/quality filtering thresholds |
-| `--cluster_id` | `0.86` | isONclust similarity threshold -- tune per amplicon/primer set |
-| `--min_cluster` | `20` | Minimum reads in a cluster to attempt consensus |
+| `--cluster_id` | `0.86` | vsearch identity threshold (fraction identity to the cluster centroid) -- tune per amplicon/primer set and basecaller accuracy |
+| `--min_cluster` | `5` | Minimum reads in a read-level cluster to attempt consensus -- a compute/quality floor, kept low so fragments can still be merged |
+| `--merge_id` | `0.97` | Identity at which per-cluster consensus sequences are merged (second vsearch pass, `MERGE_CONSENSUS`); `0` skips the merge |
 | `--enable_medaka` | `false` | Use medaka-polished consensus instead of the racon consensus downstream |
 | `--min_pident` | `90` | BLAST hits below this %identity are flagged `low_identity`, not dropped |
+| `--min_abundance` | `20` | Merged clusters with fewer reads than this are flagged `low_abundance`, not dropped (`0` = off) |
+| `--min_rel_abundance` | `0` | Merged clusters holding a smaller fraction of their sample's clustered reads than this are flagged `low_abundance`, e.g. `0.001` = under 0.1% (`0` = off) |
 
 All defaults live in `nextflow.config`, not `main.nf` (see the comments
 there if you're adding a new one).
@@ -81,14 +84,15 @@ flowchart TD
     MAKEBLASTDB --> blastdb[("BLAST db")]
 
     reads[/"--input samplesheet.csv"/] -->|"sample,fastq rows"| fastqs[/"fastq(.gz) files\n(per-sample, referenced by each row)"/]
-    fastqs --> MERGE_FASTQ --> CHOPPER --> CUTADAPT --> ISONCLUST
-    ISONCLUST -->|"per cluster"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
+    fastqs --> MERGE_FASTQ --> CHOPPER --> CUTADAPT --> VSEARCH_CLUSTER
+    VSEARCH_CLUSTER -->|"per cluster"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
 
     RACON --> medaka_check{"--enable_medaka?"}
     medaka_check -->|"false (default)"| consensus["consensus fasta"]
     medaka_check -->|"true"| MEDAKA --> consensus
 
-    consensus --> BLAST_TAX
+    consensus --> MERGE_CONSENSUS --> merged["merged consensus fasta"]
+    merged --> BLAST_TAX
     blastdb --> BLAST_TAX
 
     BLAST_TAX --> BUILD_REPORT
@@ -105,17 +109,20 @@ flowchart TD
 3. `CHOPPER` -- length/quality filter
    - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
 4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
-5. `ISONCLUST` -- quality-aware de novo clustering
+5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter)
 6. `SPOA_CONSENSUS` -- draft consensus per cluster
 7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish
 8. `MEDAKA` -- ONT-specific polish, opt-in via `--enable_medaka`
-9. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db
-10. `BUILD_REPORT` -- per-run abundance table + QC summary html
-11. `SORT_CONSENSUS` -- gather every consensus fasta by BLAST-hit confidence
+9. `MERGE_CONSENSUS` -- second vsearch pass on the per-cluster consensus sequences (`--merge_id`, default 0.97): folds clusters that are near-identical back together, keeping the largest cluster's consensus and summing the read counts. Skipped with `--merge_id 0`
+10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db
+11. `BUILD_REPORT` -- per-run abundance table + QC summary html
+12. `SORT_CONSENSUS` -- gather every consensus fasta by BLAST-hit confidence (abundance is flagged in the abundance table only; it doesn't change these folders)
 
 Consensus fasta headers are stamped as
 `>{sample}_{cluster_id} sample={sample} cluster_size={n_reads}` by whichever
-of RACON/MEDAKA produces the final consensus for a cluster.
+of RACON/MEDAKA produces the final consensus for a cluster. After
+`MERGE_CONSENSUS`, `cluster_id` is the representative cluster's id and
+`cluster_size` is the summed read count of every cluster merged into it.
 
 ## Output layout
 
@@ -125,10 +132,11 @@ results/
     00_merged/                merged fastq
     01_filtered/               chopper output
     02_trimmed/                 cutadapt output
-    03_clusters/                isONclust clusters
+    03_clusters/                per-cluster fastqs + vsearch clusters.uc
     04_draft/{cluster_id}/      spoa draft consensus
     05_racon/{cluster_id}/      minimap2 alignment + racon consensus
     06_consensus/               medaka consensus (only if --enable_medaka)
+    06_merged/                  merged consensus fastas + merge_map.tsv (which clusters were folded into which; unless --merge_id 0)
     07_taxonomy/{cluster_id}/   BLAST hits per cluster
   blastdb/                     BLAST db built from --taxdb
   consensus_by_confidence/
@@ -136,8 +144,8 @@ results/
     low_confidence/            best BLAST hit < --min_pident
     no_hit/                    no BLAST hit at all
   final_report/
-    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason
-    run_qc_summary.html        cluster counts, per-sample flagged counts
+    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason (`no_hit`, `low_identity` and/or `low_abundance`, `;`-joined)
+    run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage
     read_length_qscore_hist.tsv  histogram bins behind the plots

@@ -4,7 +4,7 @@ Aggregate per-cluster BLAST hits + consensus fastas into a single
 sample x taxon abundance table, plus a minimal QC/summary HTML.
 
 This is a functional starting point, not the final report -- extend with
-per-cluster read counts (from isONclust final_clusters.tsv), top-hit
+per-cluster read counts (from the vsearch clusters.uc), top-hit
 filtering by pident/evalue, and a proper MultiQC-style layout once the
 sample sheet format and reference taxonomy fields are finalized.
 """
@@ -154,6 +154,11 @@ def main():
                      help="NCBI taxdump dir or taxdump.tar.gz; adds taxid + full lineage columns")
     ap.add_argument("--min-pident", type=float, default=90,
                      help="hits below this identity are flagged low_identity, not dropped")
+    ap.add_argument("--min-abundance", type=int, default=0,
+                     help="merged clusters with fewer reads than this are flagged low_abundance, not dropped")
+    ap.add_argument("--min-rel-abundance", type=float, default=0,
+                     help="merged clusters holding a smaller fraction of their sample's clustered reads "
+                          "than this are flagged low_abundance, not dropped")
     args = ap.parse_args()
 
     hits_df = load_hits(args.hits)
@@ -183,6 +188,22 @@ def main():
     low_pident = best["pident"].notna() & (best["pident"] < args.min_pident)
     best.loc[low_pident & (best["flag_reason"] == ""), "flag_reason"] = "low_identity"
 
+    # ...and for being thinly supported. This is judged on the *merged* cluster
+    # size (reads from every cluster folded into this one), so a species split
+    # into several small read clusters isn't penalised for the split. The
+    # relative form is a fraction of the sample's clustered reads, which keeps
+    # the cutoff meaningful across barcodes of very different depth. Unlike the
+    # two flags above this is independent of the BLAST call, so it is appended
+    # (e.g. "low_identity;low_abundance") rather than taking precedence.
+    sample_total = best.groupby("sample")["cluster_size"].transform("sum")
+    low_abundance = best["cluster_size"].notna() & (
+        (best["cluster_size"] < args.min_abundance)
+        | (best["cluster_size"] / sample_total < args.min_rel_abundance)
+    )
+    best.loc[low_abundance, "flag_reason"] = best.loc[low_abundance, "flag_reason"].map(
+        lambda r: f"{r};low_abundance" if r else "low_abundance"
+    )
+
     tax_cols = []
     if args.taxdump:
         best = add_lineage(best, args.taxdump)
@@ -192,11 +213,18 @@ def main():
                  "length", "evalue", "bitscore", "stitle", "tied_taxa"] + tax_cols + ["flag_reason"]]
     best.to_csv(args.out_table, sep="\t", index=False)
 
+    # "flagged for review" is the BLAST-confidence flags; low_abundance is
+    # counted separately since it says how much support a call has, not
+    # whether the call itself is doubtful
+    best["_review"] = best["flag_reason"].str.contains("no_hit|low_identity")
+    best["_low_abundance"] = best["flag_reason"].str.contains("low_abundance")
     n_clusters = best.shape[0]
-    n_flagged = (best["flag_reason"] != "").sum()
+    n_flagged = best["_review"].sum()
+    n_low_abundance = best["_low_abundance"].sum()
     per_sample = (
         best.groupby("sample")
-        .agg(clusters=("seq_id", "count"), flagged=("flag_reason", lambda s: (s != "").sum()))
+        .agg(clusters=("seq_id", "count"), flagged=("_review", "sum"),
+             low_abundance=("_low_abundance", "sum"))
         .reset_index()
     )
 
@@ -204,6 +232,13 @@ def main():
         fh.write("<html><body><h2>Run summary</h2>")
         fh.write(f"<p>Clusters processed: {n_clusters}</p>")
         fh.write(f"<p>Clusters flagged for manual review (no hit or pident &lt; {args.min_pident}): {n_flagged}</p>")
+        cutoffs = []
+        if args.min_abundance:
+            cutoffs.append(f"&lt; {args.min_abundance} reads")
+        if args.min_rel_abundance:
+            cutoffs.append(f"&lt; {args.min_rel_abundance:g} of the sample's clustered reads")
+        if cutoffs:
+            fh.write(f"<p>Clusters flagged low_abundance ({' or '.join(cutoffs)}): {n_low_abundance}</p>")
         fh.write("<h3>Per-sample</h3>")
         fh.write(per_sample.to_html(index=False))
         fh.write("</body></html>")

@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 /*
  * eDNA ONT amplicon classification pipeline
- * Modern replacement for decona: quality-aware clustering (isONclust) +
+ * Modern replacement for decona: vsearch identity clustering +
  * spoa/racon/medaka consensus + reference/BLAST taxonomy assignment.
  */
 
@@ -14,7 +14,7 @@ include { READ_STATS; READ_STATS_REPORT } from './modules/read_stats.nf'
 
 // ---- top-level params (override via -params-file or --flag) ----
 // min_len / max_len / min_qual / cluster_id / min_cluster / enable_medaka /
-// min_pident defaults all live in nextflow.config, not here -- anything read
+// min_pident / min_abundance / min_rel_abundance defaults all live in nextflow.config, not here -- anything read
 // directly inside an included module or workflow script (rather than only
 // inside this file's own `workflow` block) must be set there to be reliably
 // visible by the time that module/workflow script runs (see nextflow.config)
@@ -42,10 +42,13 @@ def helpMessage() {
       --fwd_primer / --rev_primer   primer sequences for cutadapt trimming
       --min_len / --max_len / --min_qual   chopper filtering thresholds
       --enable_read_stats   read length/Q-score summary before vs. after filtering (default ${params.enable_read_stats})
-      --cluster_id   isONclust/vsearch similarity threshold (default ${params.cluster_id})
-      --min_cluster  minimum reads to polish a cluster (default ${params.min_cluster})
+      --cluster_id   vsearch identity threshold for clustering (default ${params.cluster_id})
+      --min_cluster  minimum reads for a read-level cluster to get a consensus -- a compute/quality floor (default ${params.min_cluster})
+      --merge_id     identity at which per-cluster consensus sequences are merged, 0 to skip (default ${params.merge_id})
       --enable_medaka   use medaka-polished consensus instead of racon consensus (default ${params.enable_medaka})
       --min_pident   BLAST %identity below which a hit is low-confidence (default ${params.min_pident})
+      --min_abundance      merged clusters with fewer reads are flagged low_abundance, not dropped (default ${params.min_abundance})
+      --min_rel_abundance  ...or with a smaller fraction of the sample's clustered reads, 0 = off (default ${params.min_rel_abundance})
     """.stripIndent()
 }
 
