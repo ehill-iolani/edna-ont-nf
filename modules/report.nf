@@ -1,6 +1,6 @@
 process BUILD_REPORT {
     label 'process_medium'  // nodes.dmp is held in memory when --taxdump is set
-    container 'quay.io/biocontainers/pandas:2.2.1'
+    container "${params.container_registry}/biocontainers/pandas:2.2.1"
     publishDir "${params.outdir}/final_report", mode: 'copy'
 
     input:
