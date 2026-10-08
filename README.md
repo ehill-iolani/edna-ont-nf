@@ -86,7 +86,7 @@ flowchart TD
 
     reads[/"--input samplesheet.csv"/] -->|"sample,fastq rows"| fastqs[/"fastq(.gz) files\n(per-sample, referenced by each row)"/]
     fastqs --> MERGE_FASTQ --> CHOPPER --> CUTADAPT --> VSEARCH_CLUSTER
-    VSEARCH_CLUSTER -->|"per cluster"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
+    VSEARCH_CLUSTER -->|"per sample"| SPOA_CONSENSUS --> MINIMAP2_ALIGN --> RACON
 
     RACON --> medaka_check{"--enable_medaka?"}
     medaka_check -->|"false (default)"| consensus["consensus fasta"]
@@ -97,12 +97,11 @@ flowchart TD
     blastdb --> BLAST_TAX
 
     BLAST_TAX --> BUILD_REPORT
-    BLAST_TAX --> SORT_CONSENSUS
 
     BUILD_REPORT --> report[["final_report/"]]
-    SORT_CONSENSUS --> confident[["confident/"]]
-    SORT_CONSENSUS --> lowconf[["low_confidence/"]]
-    SORT_CONSENSUS --> nohit[["no_hit/"]]
+    BUILD_REPORT --> confident[["confident/"]]
+    BUILD_REPORT --> lowconf[["low_confidence/"]]
+    BUILD_REPORT --> nohit[["no_hit/"]]
 ```
 
 1. `MAKEBLASTDB` -- build a BLAST db from `--taxdb` (once per run)
@@ -111,13 +110,12 @@ flowchart TD
    - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
 4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
 5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter)
-6. `SPOA_CONSENSUS` -- draft consensus per cluster
+6. `SPOA_CONSENSUS` -- draft consensus per cluster (one task per sample, clusters in parallel across its cpus)
 7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish
 8. `MEDAKA` -- ONT-specific polish, opt-in via `--enable_medaka`
 9. `MERGE_CONSENSUS` -- second vsearch pass on the per-cluster consensus sequences (`--merge_id`, default 0.97): folds clusters that are near-identical back together, keeping the largest cluster's consensus and summing the read counts. Skipped with `--merge_id 0`
-10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db
-11. `BUILD_REPORT` -- per-run abundance table + QC summary html
-12. `SORT_CONSENSUS` -- gather every consensus fasta by BLAST-hit confidence (abundance is flagged in the abundance table only; it doesn't change these folders)
+10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db (one blastn per sample)
+11. `BUILD_REPORT` -- per-run abundance table + QC summary html, and every consensus fasta gathered by BLAST-hit confidence (abundance is flagged in the abundance table only; it doesn't change these folders)
 
 Consensus fasta headers are stamped as
 `>{sample}_{cluster_id} sample={sample} cluster_size={n_reads}` by whichever
@@ -134,11 +132,11 @@ results/
     01_filtered/               chopper output
     02_trimmed/                 cutadapt output
     03_clusters/                per-cluster fastqs + vsearch clusters.uc
-    04_draft/{cluster_id}/      spoa draft consensus
-    05_racon/{cluster_id}/      minimap2 alignment + racon consensus
+    04_draft/                   spoa draft consensus, one fasta per cluster
+    05_racon/                   racon consensus, one fasta per cluster
     06_consensus/               medaka consensus (only if --enable_medaka)
     06_merged/                  merged consensus fastas + merge_map.tsv (which clusters were folded into which; unless --merge_id 0)
-    07_taxonomy/{cluster_id}/   BLAST hits per cluster
+    07_taxonomy/                BLAST hits ({sample}.hits.tsv, all of the sample's clusters)
   blastdb/                     BLAST db built from --taxdb
   consensus_by_confidence/
     confident/                 best BLAST hit >= --min_pident

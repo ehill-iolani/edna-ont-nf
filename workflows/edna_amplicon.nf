@@ -10,7 +10,6 @@ include { RACON            } from '../modules/racon.nf'
 include { MEDAKA           } from '../modules/medaka.nf'
 include { MERGE_CONSENSUS  } from '../modules/merge_consensus.nf'
 include { BLAST_TAX        } from '../modules/blast_tax.nf'
-include { SORT_CONSENSUS   } from '../modules/sort_consensus.nf'
 include { BUILD_REPORT     } from '../modules/report.nf'
 
 workflow EDNA_AMPLICON {
@@ -47,18 +46,17 @@ workflow EDNA_AMPLICON {
     // 5. de novo identity clustering (decona's CD-HIT step, replaced by vsearch)
     VSEARCH_CLUSTER(CUTADAPT.out.trimmed)
 
-    // VSEARCH_CLUSTER emits one fastq per cluster per sample; flatten and tag
-    clusters_ch = VSEARCH_CLUSTER.out.clusters
-        .flatMap { sample, cluster_fastqs ->
-            def files = cluster_fastqs instanceof List ? cluster_fastqs : [cluster_fastqs]
-            files.collect { fq -> tuple(sample, fq.baseName, fq) }
-        }
+    // Everything from here to BLAST_TAX runs once per sample, not once per
+    // cluster: VSEARCH_CLUSTER emits all of a sample's cluster fastqs as one
+    // list, and each step below loops over them inside its task. A task per
+    // cluster meant thousands of Batch VMs (start-up, image pull, GCS staging)
+    // each doing seconds of work. Channels are tuple(sample, [files]) throughout.
 
     // 6. draft consensus per cluster
-    SPOA_CONSENSUS(clusters_ch)
+    SPOA_CONSENSUS(VSEARCH_CLUSTER.out.clusters)
 
     // 7. alignment-based refinement
-    MINIMAP2_ALIGN(SPOA_CONSENSUS.out.draft.join(clusters_ch, by: [0, 1]))
+    MINIMAP2_ALIGN(SPOA_CONSENSUS.out.draft.join(VSEARCH_CLUSTER.out.clusters))
     RACON(MINIMAP2_ALIGN.out.aligned)
 
     // 8. ONT-specific polish -- opt-in via --enable_medaka; off by default, in
@@ -68,39 +66,35 @@ workflow EDNA_AMPLICON {
         consensus_ch = MEDAKA.out.consensus
     } else {
         consensus_ch = RACON.out.polished
-            .map { sample, cluster_id, racon_fasta, cluster_fastq -> tuple(sample, cluster_id, racon_fasta) }
+            .map { sample, racon_fastas, cluster_fastqs -> tuple(sample, racon_fastas) }
     }
 
     // 8b. second vsearch pass: fold clusters whose consensus sequences are
     // near-identical back together (one species split across several read
     // clusters by raw ONT error) -- skipped with --merge_id 0
     if (params.merge_id) {
-        MERGE_CONSENSUS(consensus_ch.groupTuple())
-        // one fasta per merged group; cluster_id is the representative's
+        MERGE_CONSENSUS(consensus_ch)
+        // one fasta per merged group, named for its representative cluster
         consensus_ch = MERGE_CONSENSUS.out.merged
-            .flatMap { sample, fastas ->
-                def files = fastas instanceof List ? fastas : [fastas]
-                files.collect { fa ->
-                    tuple(sample, fa.name.minus("${sample}.").minus('.merged.fasta'), fa)
-                }
-            }
     }
 
-    // 9. taxonomy assignment against the freshly built BLAST db
+    // 9. taxonomy assignment against the freshly built BLAST db. One blastn
+    // per sample over all its consensus sequences, so the db is staged once
+    // per sample rather than per cluster.
     // .first() turns the (single-emission) db channels into value channels so
-    // they're reused for every cluster instead of being consumed after one
+    // they're reused for every sample instead of being consumed after one
     BLAST_TAX(consensus_ch, MAKEBLASTDB.out.db_files.first(), MAKEBLASTDB.out.db_name.first())
 
-    // 10. per-run abundance table + QC report
+    // 10. per-run abundance table + QC report. Also gathers every consensus
+    // fasta into confident / low_confidence / no_hit dirs, using the same
+    // best-hit call as the abundance table.
     BUILD_REPORT(
-        BLAST_TAX.out.hits.map { sample, cluster_id, hits -> hits }.collect(),
-        consensus_ch.map { sample, cluster_id, fasta -> fasta }.collect(),
+        BLAST_TAX.out.hits.map { sample, hits -> hits }.collect(),
+        consensus_ch
+            .flatMap { sample, fastas -> [fastas].flatten() }
+            .collect(),
         taxdump
     )
-
-    // 11. gather every consensus fasta into confident / low_confidence / no_hit
-    // dirs, using the same best-hit classification as the abundance table
-    SORT_CONSENSUS(consensus_ch.join(BLAST_TAX.out.hits, by: [0, 1]))
 
     emit:
     consensus = consensus_ch
