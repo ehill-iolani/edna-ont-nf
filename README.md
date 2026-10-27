@@ -67,9 +67,11 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--min_len` / `--max_len` / `--min_qual` | `150` / `300` / `10` | chopper length/quality filtering thresholds |
 | `--cluster_id` | `0.86` | vsearch identity threshold (fraction identity to the cluster centroid) -- tune per amplicon/primer set and basecaller accuracy |
 | `--min_cluster` | `5` | Minimum reads in a read-level cluster to attempt consensus -- a compute/quality floor, kept low so fragments can still be merged |
+| `--spoa_max_reads` | `500` | Most reads per cluster used for the spoa draft, taken evenly through the cluster (`0` = all). RACON still polishes with every read, and `cluster_size` counts every read |
 | `--merge_id` | `0.97` | Identity at which per-cluster consensus sequences are merged (second vsearch pass, `MERGE_CONSENSUS`); `0` skips the merge |
 | `--enable_medaka` | `false` | Use medaka-polished consensus instead of the racon consensus downstream |
 | `--container_registry` / `--dockerhub_registry` | `quay.io` / `docker.io` | Registries the tool images are pulled from. The `google_batch` profile points both at the project's Artifact Registry mirror (see [Container mirror](#container-mirror)); pass the defaults to pull from upstream |
+| `--blast_chunk_size` | `300` | Consensus sequences per `BLAST_TAX` task, so a sample with thousands of clusters is searched on several VMs side by side (`0` = one task per sample). The hits are the same either way |
 | `--min_pident` | `90` | BLAST hits below this %identity are flagged `low_identity`, not dropped |
 | `--min_abundance` | `20` | Merged clusters with fewer reads than this get `low_abundance = true` in the abundance table, not dropped (`0` = off) |
 | `--min_rel_abundance` | `0` | Merged clusters holding a smaller fraction of their sample's clustered reads than this get `low_abundance = true`, e.g. `0.001` = under 0.1% (`0` = off) |
@@ -110,11 +112,11 @@ flowchart TD
    - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
 4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
 5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter)
-6. `SPOA_CONSENSUS` -- draft consensus per cluster (one task per sample, clusters in parallel across its cpus)
+6. `SPOA_CONSENSUS` -- draft consensus per cluster from at most `--spoa_max_reads` of its reads (one task per sample, clusters in parallel across its cpus)
 7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish
 8. `MEDAKA` -- ONT-specific polish, opt-in via `--enable_medaka`
 9. `MERGE_CONSENSUS` -- second vsearch pass on the per-cluster consensus sequences (`--merge_id`, default 0.97): folds clusters that are near-identical back together, keeping the largest cluster's consensus and summing the read counts. Skipped with `--merge_id 0`
-10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db (one blastn per sample)
+10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db (one blastn per chunk of `--blast_chunk_size` consensus sequences; `BUILD_REPORT` joins each sample's chunks back into `07_taxonomy/{sample}.hits.tsv`)
 11. `BUILD_REPORT` -- per-run abundance table + QC summary html, and every consensus fasta gathered by BLAST-hit confidence (abundance is flagged in the abundance table only; it doesn't change these folders)
 
 Consensus fasta headers are stamped as
