@@ -165,12 +165,28 @@
           "description": "BLAST %identity threshold for a confident call.",
           "help_text": "Hits below this identity are flagged low_identity rather than dropped, and routed to consensus_by_confidence/low_confidence/ instead of confident/. Clusters with no BLAST hit at all are flagged no_hit."
         },
+        "min_qcov": {
+          "type": "number",
+          "default": 70,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "% of the consensus sequence the best hit must cover (BLAST qcovs) for a confident call.",
+          "help_text": "Reference sets often mix whole mitogenomes with partial genes shorter than the amplicon. A partial record can only match part of the consensus, so its identity says nothing about the rest; such hits are flagged low_coverage and routed to consensus_by_confidence/low_confidence/. Primers are trimmed before clustering, so a reference that spans the amplicon covers close to 100%. Hits that pass are ranked by identity, not bitscore, so a longer but more distant reference no longer beats a closer one. 0 disables."
+        },
+        "tie_pident": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Hits within this many percentage points of a cluster's best identity count as tied with it.",
+          "help_text": "Short markers such as 12S can't separate some close species, and the reference then holds several species within a fraction of a percent of the consensus. Tied species of one genus are reported as 'Genus sp.', of different genera as ambiguous, instead of naming one of them arbitrarily. Recorded in the abundance table's tied_taxa column. 0 counts only exact ties."
+        },
         "min_abundance": {
           "type": "integer",
           "default": 20,
           "minimum": 0,
           "description": "Merged clusters with fewer reads than this are marked low_abundance.",
-          "help_text": "Applied to the merged cluster_size (reads from every cluster folded into it by merge_id). Mark-only: the cluster is still BLASTed and reported, with true in the abundance table's low_abundance column. flag_reason is unaffected (it stays '', no_hit or low_identity), and so are the consensus_by_confidence folders. 0 disables."
+          "help_text": "Applied to the merged cluster_size (reads from every cluster folded into it by merge_id). Mark-only: the cluster is still BLASTed and reported, with true in the abundance table's low_abundance column. flag_reason is unaffected (it stays '', no_hit, low_coverage or low_identity), and so are the consensus_by_confidence folders. 0 disables."
         },
         "min_rel_abundance": {
           "type": "number",

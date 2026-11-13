@@ -1,7 +1,7 @@
 process BUILD_REPORT {
     label 'process_medium'  // nodes.dmp is held in memory when --taxdump is set
     container "${params.container_registry}/biocontainers/pandas:2.2.1"
-    publishDir "${params.outdir}/final_report", mode: 'copy', pattern: '{abundance_table.tsv,run_qc_summary.html}'
+    publishDir "${params.outdir}/final_report", mode: 'copy', pattern: '{abundance_table.tsv,run_qc_summary.html,skipped_samples.tsv}'
     publishDir "${params.outdir}", mode: 'copy', pattern: 'consensus_by_confidence'
     publishDir "${params.outdir}", mode: 'copy', pattern: '*/07_taxonomy/*.hits.tsv'
 
@@ -9,15 +9,18 @@ process BUILD_REPORT {
     path hit_files
     path consensus_files
     path taxdump    // NCBI taxdump dir/tar.gz, or [] to skip lineage columns
+    path skipped    // VSEARCH_CLUSTER's <sample>.skipped.tsv files, or [] if none
 
     output:
     path "abundance_table.tsv", emit: report
     path "run_qc_summary.html"
+    path "skipped_samples.tsv", optional: true
     path "consensus_by_confidence"
     path "*/07_taxonomy/*.hits.tsv"
 
     script:
     def taxdump_arg = taxdump ? "--taxdump ${taxdump}" : ''
+    def skipped_arg = skipped ? "--skipped ${skipped}" : ''
 
     // BLAST_TAX runs per chunk of a sample's sequences; each sample's chunk
     // files are joined back into one <sample>/07_taxonomy/<sample>.hits.tsv
@@ -37,8 +40,11 @@ process BUILD_REPORT {
         --out-html run_qc_summary.html \\
         --out-sorted consensus_by_confidence \\
         --min-pident ${params.min_pident} \\
+        --min-qcov ${params.min_qcov} \\
+        --tie-pident ${params.tie_pident} \\
         --min-abundance ${params.min_abundance} \\
         --min-rel-abundance ${params.min_rel_abundance} \\
-        ${taxdump_arg}
+        ${taxdump_arg} \\
+        ${skipped_arg}
     """
 }

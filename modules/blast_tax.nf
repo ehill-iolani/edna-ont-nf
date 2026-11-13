@@ -30,10 +30,22 @@ process BLAST_TAX {
 
     blastn -query queries.fasta -db ${db_name} \\
         -num_threads ${task.cpus} \\
-        -outfmt "6 qseqid sseqid pident length evalue bitscore stitle" \\
-        -max_target_seqs 5 -evalue 1e-10 \\
+        -outfmt "6 qseqid sseqid pident length evalue bitscore qcovs stitle" \\
+        -max_target_seqs 50 -evalue 1e-10 \\
         -out blast.tsv
 
+    # 50 targets, not 5: BUILD_REPORT ranks a cluster's hits by identity and
+    # looks for near-ties among them, and BLAST's own cut to the first N
+    # targets goes by score, which favours longer references. eDNA reference
+    # sets mix whole mitogenomes with short partial genes, so with 5 the
+    # closest record could be cut before BUILD_REPORT saw it.
+    #
+    # qcovs (how much of the consensus the hit covers, all HSPs together) is
+    # what BUILD_REPORT's --min-qcov checks and ranks on first: a reference
+    # shorter than the amplicon can only match part of it, so its identity
+    # says nothing about the rest. It goes before stitle, which stays the
+    # last column.
+    #
     # unmatched clusters (no hit) are flagged, not dropped -- important for
     # undescribed / poorly represented Hawaiian endemic sequence variants
     #
@@ -46,7 +58,7 @@ process BLAST_TAX {
         /^>/ {
             id = substr(\$0, 2)
             sub(/[ \t].*/, "", id)
-            if (!(id in seen)) printf "%s\\tNO_HIT\\tNA\\tNA\\tNA\\tNA\\tflag_for_manual_review\\n", id
+            if (!(id in seen)) printf "%s\\tNO_HIT\\tNA\\tNA\\tNA\\tNA\\tNA\\tflag_for_manual_review\\n", id
         }
     ' blast.tsv queries.fasta > no_hit.tsv
 

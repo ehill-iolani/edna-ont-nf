@@ -14,7 +14,7 @@ include { READ_STATS; READ_STATS_REPORT } from './modules/read_stats.nf'
 
 // ---- top-level params (override via -params-file or --flag) ----
 // min_len / max_len / min_qual / cluster_id / min_cluster / enable_medaka /
-// min_pident / min_abundance / min_rel_abundance defaults all live in nextflow.config, not here -- anything read
+// min_pident / min_qcov / tie_pident / min_abundance / min_rel_abundance defaults all live in nextflow.config, not here -- anything read
 // directly inside an included module or workflow script (rather than only
 // inside this file's own `workflow` block) must be set there to be reliably
 // visible by the time that module/workflow script runs (see nextflow.config)
@@ -49,6 +49,8 @@ def helpMessage() {
       --enable_medaka   use medaka-polished consensus instead of racon consensus (default ${params.enable_medaka})
       --blast_chunk_size  consensus sequences per BLAST task, 0 = one task per sample; same hits either way (default ${params.blast_chunk_size})
       --min_pident   BLAST %identity below which a hit is low-confidence (default ${params.min_pident})
+      --min_qcov     % of the consensus a hit must cover, below which it is low-confidence (default ${params.min_qcov})
+      --tie_pident   hits within this many % points of the best identity count as tied -> reported at genus level (default ${params.tie_pident})
       --min_abundance      merged clusters with fewer reads get low_abundance=true in the abundance table, not dropped (default ${params.min_abundance})
       --min_rel_abundance  ...or with a smaller fraction of the sample's clustered reads, 0 = off (default ${params.min_rel_abundance})
     """.stripIndent()
