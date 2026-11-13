@@ -15,7 +15,8 @@ import tarfile
 
 import pandas as pd
 
-COLS = ["seq_id", "subject_id", "pident", "length", "evalue", "bitscore", "stitle"]
+COLS = ["seq_id", "subject_id", "pident", "length", "evalue", "bitscore", "qcovs", "stitle"]
+SKIPPED_COLS = ["sample", "trimmed_reads", "largest_cluster", "reason"]
 
 
 def load_hits(paths):
@@ -37,21 +38,55 @@ def species_label(stitle):
     return " ".join(toks[:2])
 
 
-def tied_species(hits_df):
-    """seq_id -> "|"-joined distinct species among the hits tied for that
-    cluster's best bitscore, or "" when the best hit is unambiguous.
+def rank_hits(hits_df, min_qcov):
+    """A cluster's hits, best first: those covering at least min_qcov % of the
+    consensus ahead of the rest, ranked by identity, then bitscore.
 
-    A cluster's hits are often several reference records with identical
-    bitscores; when they name different species the working call (the first
-    of them) is really a coin flip, and the frontend reports it at genus
-    level (same genus) or as ambiguous (different genera) instead."""
+    Not by bitscore alone: bitscore grows with alignment length, and eDNA
+    reference sets mix whole mitogenomes with short partial genes, so a longer
+    but more distant reference outscored a closer, shorter one (a Phycis
+    blennoides consensus went to a 98.8% P. chesteri mitogenome over 1,930 bp
+    instead of the 99.9% P. blennoides record over 1,504 bp). Same rule as
+    ITS-nf. Hits under the coverage floor keep their bitscore order, so a
+    cluster with none above it still reports its longest hit (and is flagged
+    low_coverage). The sort is stable, so BLAST's own order breaks remaining
+    ties."""
+    hits = hits_df.copy()
+    qcov = pd.to_numeric(hits["qcovs"], errors="coerce")
+    hits["_covered"] = qcov >= min_qcov
+    hits["_identity"] = hits["pident"].where(hits["_covered"])
+    return hits.sort_values(["_covered", "_identity", "bitscore"], ascending=False,
+                            kind="stable", na_position="last")
+
+
+def tied_species(ranked, tie_pident):
+    """seq_id -> "|"-joined distinct species among the hits within tie_pident
+    percentage points of the cluster's best identity (covering hits only), or
+    "" when the best hit is unambiguous.
+
+    Short markers often can't tell close species apart (12S across many
+    flatfish and ray congeners), and the reference then holds several species
+    within a fraction of a percent of the consensus. Naming the first of them
+    would be a coin flip, so they're recorded here and the frontend reports
+    the cluster at genus level (same genus) or as ambiguous (different
+    genera) instead."""
     out = {}
-    hits = hits_df[hits_df["subject_id"] != "NO_HIT"]
+    hits = ranked[(ranked["subject_id"] != "NO_HIT") & ranked["_covered"]]
     for seq_id, grp in hits.groupby("seq_id", sort=False):
-        top = grp[grp["bitscore"] == grp["bitscore"].max()]
-        names = list(dict.fromkeys(n for n in map(species_label, top["stitle"]) if n))
+        near = grp[grp["pident"] >= grp["pident"].max() - tie_pident]
+        names = list(dict.fromkeys(n for n in map(species_label, near["stitle"]) if n))
         out[seq_id] = "|".join(names) if len(names) > 1 else ""
     return out
+
+
+def load_skipped(paths):
+    """VSEARCH_CLUSTER's one-line <sample>.skipped.tsv files (a sample with no
+    reads after trimming, or no cluster of --min_cluster reads)."""
+    rows = []
+    for p in paths or []:
+        with open(p) as fh:
+            rows += [line.rstrip("\n").split("\t") for line in fh if line.strip()]
+    return pd.DataFrame(rows, columns=SKIPPED_COLS).sort_values("sample", kind="stable")
 
 
 def load_consensus_meta(paths):
@@ -76,7 +111,7 @@ def load_consensus_meta(paths):
 
 
 # flag_reason -> the consensus_by_confidence/ folder a cluster's fasta goes in
-CONFIDENCE_DIR = {"": "confident", "low_identity": "low_confidence", "no_hit": "no_hit"}
+CONFIDENCE_DIR = {"": "confident", "low_identity": "low_confidence", "low_coverage": "low_confidence", "no_hit": "no_hit"}
 
 
 def sort_consensus(best, out_dir):
@@ -173,41 +208,58 @@ def main():
                      help="NCBI taxdump dir or taxdump.tar.gz; adds taxid + full lineage columns")
     ap.add_argument("--min-pident", type=float, default=90,
                      help="hits below this identity are flagged low_identity, not dropped")
+    ap.add_argument("--min-qcov", type=float, default=0,
+                     help="hits covering less than this %% of the consensus (BLAST qcovs) are flagged "
+                          "low_coverage, not dropped; 0 = off")
+    ap.add_argument("--tie-pident", type=float, default=1.0,
+                     help="hits within this many percentage points of a cluster's best identity "
+                          "count as tied with it (see tied_species)")
     ap.add_argument("--min-abundance", type=int, default=0,
                      help="merged clusters with fewer reads than this get low_abundance=true, not dropped")
     ap.add_argument("--min-rel-abundance", type=float, default=0,
                      help="merged clusters holding a smaller fraction of their sample's clustered reads "
                           "than this get low_abundance=true, not dropped")
+    ap.add_argument("--skipped", nargs="*", default=[],
+                     help="VSEARCH_CLUSTER's <sample>.skipped.tsv files; listed in skipped_samples.tsv")
+    ap.add_argument("--out-skipped", default="skipped_samples.tsv",
+                     help="written only when --skipped names at least one sample")
     args = ap.parse_args()
 
     hits_df = load_hits(args.hits)
     consensus_meta = load_consensus_meta(args.consensus)
 
-    # keep best hit per cluster (highest bitscore) as the working call.
-    # Ties are common (several reference records with identical bitscores),
-    # so the sort must be stable: BLAST lists a cluster's hits best-first, and
-    # a stable sort keeps that order among tied bitscores, so the hit picked
-    # here is the first line of the cluster's hits file. pandas' default sort
-    # is not stable and picked an arbitrary tied hit, which gave clusters with
-    # identical hits different species.
-    best = (
-        hits_df.sort_values("bitscore", ascending=False, kind="stable")
-        .groupby("seq_id", as_index=False)
-        .first()
-    )
+    # keep the best-ranked hit per cluster as the working call (rank_hits:
+    # covering hits first, then identity, then bitscore). Ties are common
+    # (several reference records with identical scores), so the sort must be
+    # stable: BLAST lists a cluster's hits best-first, and a stable sort keeps
+    # that order among ties. pandas' default sort is not stable and picked an
+    # arbitrary tied hit, which gave clusters with identical hits different
+    # species.
+    ranked = rank_hits(hits_df, args.min_qcov)
+    # drop_duplicates rather than groupby().first(), which takes each column's
+    # first non-null value and could mix fields from different hits
+    best = ranked.drop_duplicates("seq_id")[COLS].sort_values("seq_id").reset_index(drop=True)
     best = best.merge(consensus_meta, on="seq_id", how="left")
-    best["tied_taxa"] = best["seq_id"].map(tied_species(hits_df)).fillna("")
+    best["tied_taxa"] = best["seq_id"].map(tied_species(ranked, args.tie_pident)).fillna("")
 
-    # clusters are flagged, not dropped, either for no BLAST hit at all or for
-    # a best hit too divergent to call with confidence (pident < min-pident)
+    # clusters are flagged, not dropped: for no BLAST hit at all, for a best
+    # hit that covers too little of the consensus to be a match for the whole
+    # amplicon (qcovs < min-qcov -- typically a reference shorter than the
+    # amplicon, or a hit on a conserved stretch only), or for one too
+    # divergent to call with confidence (pident < min-pident). Coverage is
+    # checked first: a short hit's identity says nothing about the rest of
+    # the sequence.
     best["flag_reason"] = ""
     best.loc[best["subject_id"] == "NO_HIT", "flag_reason"] = "no_hit"
+    qcovs = pd.to_numeric(best["qcovs"], errors="coerce")
+    low_qcov = qcovs.notna() & (qcovs < args.min_qcov)
+    best.loc[low_qcov & (best["flag_reason"] == ""), "flag_reason"] = "low_coverage"
     low_pident = best["pident"].notna() & (best["pident"] < args.min_pident)
     best.loc[low_pident & (best["flag_reason"] == ""), "flag_reason"] = "low_identity"
 
     # Thin support is a separate axis from the BLAST call above, so it gets its
     # own true/false column rather than another flag_reason value: flag_reason
-    # stays exactly '' | 'no_hit' | 'low_identity', which downstream readers
+    # stays exactly '' | 'no_hit' | 'low_coverage' | 'low_identity', which downstream readers
     # (e.g. the web frontend) take as the whole story and use as a taxon label.
     # Judged on the *merged* cluster size (reads from every cluster folded into
     # this one), so a species split into several small read clusters isn't
@@ -230,7 +282,7 @@ def main():
         sort_consensus(best, args.out_sorted)
 
     best = best[["seq_id", "sample", "cluster_size", "subject_id", "pident",
-                 "length", "evalue", "bitscore", "stitle", "tied_taxa"] + tax_cols + ["flag_reason", "low_abundance"]]
+                 "length", "evalue", "bitscore", "qcovs", "stitle", "tied_taxa"] + tax_cols + ["flag_reason", "low_abundance"]]
     best.to_csv(args.out_table, sep="\t", index=False)
 
     # "flagged" is the BLAST-confidence flag; low_abundance is counted
@@ -247,10 +299,18 @@ def main():
         .reset_index()
     )
 
+    # samples VSEARCH_CLUSTER had nothing to cluster for: in no table above,
+    # so listed on their own (a file only when there are any, so a run without
+    # them has exactly its old outputs)
+    skipped = load_skipped(args.skipped)
+    if not skipped.empty:
+        skipped.to_csv(args.out_skipped, sep="\t", index=False)
+
     with open(args.out_html, "w") as fh:
         fh.write("<html><body><h2>Run summary</h2>")
         fh.write(f"<p>Clusters processed: {n_clusters}</p>")
-        fh.write(f"<p>Clusters flagged for manual review (no hit or pident &lt; {args.min_pident}): {n_flagged}</p>")
+        fh.write(f"<p>Clusters flagged for manual review (no hit, query coverage &lt; {args.min_qcov:g}% "
+                 f"or pident &lt; {args.min_pident}): {n_flagged}</p>")
         cutoffs = []
         if args.min_abundance:
             cutoffs.append(f"&lt; {args.min_abundance} reads")
@@ -260,6 +320,12 @@ def main():
             fh.write(f"<p>Clusters marked low_abundance ({' or '.join(cutoffs)}): {n_low_abundance}</p>")
         fh.write("<h3>Per-sample</h3>")
         fh.write(per_sample.to_html(index=False))
+        if not skipped.empty:
+            fh.write("<h3>Skipped samples</h3>")
+            fh.write("<p>Nothing to identify: no reads left after primer trimming (no_reads), or no "
+                     "cluster reached --min_cluster reads (no_cluster). Expected for blanks and "
+                     "negative controls.</p>")
+            fh.write(skipped.to_html(index=False))
         fh.write("</body></html>")
 
 

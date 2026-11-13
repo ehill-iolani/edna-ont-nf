@@ -65,16 +65,18 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--taxdb` | *(required)* | Reference sequences FASTA; a BLAST db is built from this each run |
 | `--taxdump` | `null` | NCBI taxdump directory or `taxdump.tar.gz` ([download](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz)); adds `taxid` + `superkingdom`...`species` columns to `abundance_table.tsv`, resolved from the best hit's binomial |
 | `--outdir` | `results` | Output directory |
-| `--fwd_primer` / `--rev_primer` | `null` | Primer sequences for cutadapt trimming; trimming is skipped if unset |
+| `--fwd_primer` / `--rev_primer` | `null` | Primer sequences (both 5'->3', as ordered) for cutadapt trimming; skipped if unset. Reads in either orientation are trimmed to what lies between the primers, and reads without both are dropped |
 | `--min_len` / `--max_len` / `--min_qual` | `150` / `300` / `10` | chopper length/quality filtering thresholds |
 | `--cluster_id` | `0.86` | vsearch identity threshold (fraction identity to the cluster centroid) -- tune per amplicon/primer set and basecaller accuracy |
-| `--min_cluster` | `5` | Minimum reads in a read-level cluster to attempt consensus -- a compute/quality floor, kept low so fragments can still be merged |
+| `--min_cluster` | `5` | Minimum reads in a read-level cluster to attempt consensus -- a compute/quality floor, kept low so fragments can still be merged. A sample with no cluster this big (or no reads after trimming) is skipped and listed in `skipped_samples.tsv`, not a failed run |
 | `--spoa_max_reads` | `500` | Most reads per cluster used for the spoa draft, taken evenly through the cluster (`0` = all). RACON still polishes with every read, and `cluster_size` counts every read |
 | `--merge_id` | `0.97` | Identity at which per-cluster consensus sequences are merged (second vsearch pass, `MERGE_CONSENSUS`); `0` skips the merge |
 | `--enable_medaka` | `false` | Use medaka-polished consensus instead of the racon consensus downstream |
 | `--container_registry` / `--dockerhub_registry` | `quay.io` / `docker.io` | Registries the tool images are pulled from. The `google_batch` profile points both at the project's Artifact Registry mirror (see [Container mirror](#container-mirror)); pass the defaults to pull from upstream |
 | `--blast_chunk_size` | `300` | Consensus sequences per `BLAST_TAX` task, so a sample with thousands of clusters is searched on several VMs side by side (`0` = one task per sample). The hits are the same either way |
 | `--min_pident` | `90` | BLAST hits below this %identity are flagged `low_identity`, not dropped |
+| `--min_qcov` | `70` | BLAST hits covering less than this % of the consensus (`qcovs`) are flagged `low_coverage`, not dropped (`0` = off). Covering hits are ranked by identity, then bitscore, so a long but more distant reference (a congener's whole mitogenome) no longer beats a closer, shorter one |
+| `--tie_pident` | `1.0` | Hits within this many percentage points of a cluster's best identity count as tied; tied species go in `tied_taxa` (`0` = exact ties only) |
 | `--min_abundance` | `20` | Merged clusters with fewer reads than this get `low_abundance = true` in the abundance table, not dropped (`0` = off) |
 | `--min_rel_abundance` | `0` | Merged clusters holding a smaller fraction of their sample's clustered reads than this get `low_abundance = true`, e.g. `0.001` = under 0.1% (`0` = off) |
 
@@ -112,8 +114,8 @@ flowchart TD
 2. `MERGE_FASTQ` -- merge multi-part fastq(.gz) files per sample
 3. `CHOPPER` -- length/quality filter
    - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
-4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
-5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter)
+4. `CUTADAPT` -- primer trimming (skipped if no primers supplied): one linked adapter with `--revcomp`, so reads from either strand are trimmed and come out forward-oriented
+5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter). A sample with nothing to cluster (an empty blank) is skipped with a warning and listed in `final_report/skipped_samples.tsv`; the run only stops if every sample is empty
 6. `SPOA_CONSENSUS` -- draft consensus per cluster from at most `--spoa_max_reads` of its reads (one task per sample, clusters in parallel across its cpus)
 7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish
 8. `MEDAKA` -- ONT-specific polish, opt-in via `--enable_medaka`
@@ -143,12 +145,13 @@ results/
     07_taxonomy/                BLAST hits ({sample}.hits.tsv, all of the sample's clusters)
   blastdb/                     BLAST db built from --taxdb
   consensus_by_confidence/
-    confident/                 best BLAST hit >= --min_pident
-    low_confidence/            best BLAST hit < --min_pident
+    confident/                 best BLAST hit >= --min_pident and covering >= --min_qcov
+    low_confidence/            best BLAST hit < --min_pident or covering < --min_qcov
     no_hit/                    no BLAST hit at all
   final_report/
-    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit, tied_taxa (species tied for the best bitscore, if more than one), full lineage (with --taxdump), flag_reason (`no_hit` or `low_identity`, from the BLAST call), low_abundance (`true`/`false`, from `--min_abundance` / `--min_rel_abundance`; independent of flag_reason)
-    run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts
+    abundance_table.tsv        one row per cluster: sample, cluster_size, best hit (incl. qcovs), tied_taxa (species within --tie_pident of the best identity, if more than one), full lineage (with --taxdump), flag_reason (`no_hit`, `low_coverage` or `low_identity`, from the BLAST call), low_abundance (`true`/`false`, from `--min_abundance` / `--min_rel_abundance`; independent of flag_reason)
+    run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts, skipped samples
+    skipped_samples.tsv        only if any: samples with nothing to cluster (sample, trimmed_reads, largest_cluster, reason `no_reads` / `no_cluster`)
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage
     read_length_qscore_hist.tsv  histogram bins behind the plots

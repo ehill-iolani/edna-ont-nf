@@ -46,6 +46,21 @@ workflow EDNA_AMPLICON {
     // 5. de novo identity clustering (decona's CD-HIT step, replaced by vsearch)
     VSEARCH_CLUSTER(CUTADAPT.out.trimmed)
 
+    // A sample with nothing to cluster (an empty blank, a failed barcode) is
+    // skipped there rather than failing the run: it emits no clusters, so it
+    // drops out of every step below, and BUILD_REPORT lists it in
+    // final_report/skipped_samples.tsv. Only a run where every sample came out
+    // empty stops here, since there is nothing left to report on.
+    VSEARCH_CLUSTER.out.skipped.subscribe { f ->
+        def (name, reads, largest, reason) = f.text.trim().split('\t')
+        log.warn(reason == 'no_reads'
+            ? "Sample ${name}: no reads left after primer trimming; skipped"
+            : "Sample ${name}: no cluster reached --min_cluster ${params.min_cluster} reads (${reads} reads, largest cluster ${largest}); skipped")
+    }
+    clusters_ch = VSEARCH_CLUSTER.out.clusters.ifEmpty {
+        error "No sample produced a cluster of at least --min_cluster ${params.min_cluster} reads, so there is nothing to identify. Each sample's 01_filtered and 02_trimmed folders show how many reads were left: check the primers, --min_len / --max_len and --cluster_id"
+    }
+
     // Everything from here to BLAST_TAX runs once per sample, not once per
     // cluster: VSEARCH_CLUSTER emits all of a sample's cluster fastqs as one
     // list, and each step below loops over them inside its task. A task per
@@ -53,10 +68,10 @@ workflow EDNA_AMPLICON {
     // each doing seconds of work. Channels are tuple(sample, [files]) throughout.
 
     // 6. draft consensus per cluster
-    SPOA_CONSENSUS(VSEARCH_CLUSTER.out.clusters)
+    SPOA_CONSENSUS(clusters_ch)
 
     // 7. alignment-based refinement
-    MINIMAP2_ALIGN(SPOA_CONSENSUS.out.draft.join(VSEARCH_CLUSTER.out.clusters))
+    MINIMAP2_ALIGN(SPOA_CONSENSUS.out.draft.join(clusters_ch))
     RACON(MINIMAP2_ALIGN.out.aligned)
 
     // 8. ONT-specific polish -- opt-in via --enable_medaka; off by default, in
@@ -103,7 +118,9 @@ workflow EDNA_AMPLICON {
         consensus_ch
             .flatMap { sample, fastas -> [fastas].flatten() }
             .collect(),
-        taxdump
+        taxdump,
+        // [] when nothing was skipped, so BUILD_REPORT still runs
+        VSEARCH_CLUSTER.out.skipped.collect().ifEmpty([])
     )
 
     emit:
