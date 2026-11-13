@@ -117,7 +117,7 @@ flowchart TD
 4. `CUTADAPT` -- primer trimming (skipped if no primers supplied): one linked adapter with `--revcomp`, so reads from either strand are trimmed and come out forward-oriented
 5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter). A sample with nothing to cluster (an empty blank) is skipped with a warning and listed in `final_report/skipped_samples.tsv`; the run only stops if every sample is empty
 6. `SPOA_CONSENSUS` -- draft consensus per cluster from at most `--spoa_max_reads` of its reads (one task per sample, clusters in parallel across its cpus)
-7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish
+7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish. A cluster none of whose reads aligned to its own draft (reads too short to place) is skipped with a warning and listed in `final_report/skipped_clusters.tsv`; the run only stops if no cluster in any sample could be polished
 8. `MEDAKA` -- ONT-specific polish, opt-in via `--enable_medaka`
 9. `MERGE_CONSENSUS` -- second vsearch pass on the per-cluster consensus sequences (`--merge_id`, default 0.97): folds clusters that are near-identical back together, keeping the largest cluster's consensus and summing the read counts. Skipped with `--merge_id 0`
 10. `BLAST_TAX` -- taxonomy assignment against the run's BLAST db (one blastn per chunk of `--blast_chunk_size` consensus sequences; `BUILD_REPORT` joins each sample's chunks back into `07_taxonomy/{sample}.hits.tsv`)
@@ -150,8 +150,9 @@ results/
     no_hit/                    no BLAST hit at all
   final_report/
     abundance_table.tsv        one row per cluster: sample, cluster_size, best hit (incl. qcovs), tied_taxa (species within --tie_pident of the best identity, if more than one), full lineage (with --taxdump), flag_reason (`no_hit`, `low_coverage` or `low_identity`, from the BLAST call), low_abundance (`true`/`false`, from `--min_abundance` / `--min_rel_abundance`; independent of flag_reason)
-    run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts, skipped samples
+    run_qc_summary.html        cluster counts, per-sample flagged and low_abundance counts, skipped samples and clusters
     skipped_samples.tsv        only if any: samples with nothing to cluster (sample, trimmed_reads, largest_cluster, reason `no_reads` / `no_cluster`)
+    skipped_clusters.tsv       only if any: clusters RACON could not polish (sample, cluster, reads, draft_length, reason `no_reads_aligned`); not in abundance_table.tsv
     read_qc_summary.html       read length / Q-score, before vs. after filtering
     read_stats.tsv             the same numbers per sample and stage
     read_length_qscore_hist.tsv  histogram bins behind the plots
