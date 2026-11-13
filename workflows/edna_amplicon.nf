@@ -74,13 +74,28 @@ workflow EDNA_AMPLICON {
     MINIMAP2_ALIGN(SPOA_CONSENSUS.out.draft.join(clusters_ch))
     RACON(MINIMAP2_ALIGN.out.aligned)
 
+    // A cluster none of whose reads aligned to its draft is skipped there
+    // rather than failing the run (racon has nothing to polish with), and
+    // BUILD_REPORT lists it in final_report/skipped_clusters.tsv. A sample
+    // whose every cluster went that way drops out like an empty one; only a
+    // run with no polished cluster at all stops here.
+    RACON.out.skipped.subscribe { f ->
+        f.readLines().findAll { it.trim() }.each { line ->
+            def (name, cid, reads, draft_len, reason) = line.split('\t')
+            log.warn("Sample ${name}: cluster ${cid} (${reads} reads, ${draft_len} bp draft) skipped, none of its reads aligned to its draft")
+        }
+    }
+    polished_ch = RACON.out.polished.ifEmpty {
+        error "No cluster in any sample could be polished: none of their reads aligned to their own draft consensus. Each sample's 02_trimmed and 04_draft folders show the read and draft lengths: check the primers and --min_len / --max_len"
+    }
+
     // 8. ONT-specific polish -- opt-in via --enable_medaka; off by default, in
     // which case the racon output above is used as the consensus directly
     if (params.enable_medaka) {
-        MEDAKA(RACON.out.polished)
+        MEDAKA(polished_ch)
         consensus_ch = MEDAKA.out.consensus
     } else {
-        consensus_ch = RACON.out.polished
+        consensus_ch = polished_ch
             .map { sample, racon_fastas, cluster_fastqs -> tuple(sample, racon_fastas) }
     }
 
@@ -120,7 +135,8 @@ workflow EDNA_AMPLICON {
             .collect(),
         taxdump,
         // [] when nothing was skipped, so BUILD_REPORT still runs
-        VSEARCH_CLUSTER.out.skipped.collect().ifEmpty([])
+        VSEARCH_CLUSTER.out.skipped.collect().ifEmpty([]),
+        RACON.out.skipped.collect().ifEmpty([])
     )
 
     emit:

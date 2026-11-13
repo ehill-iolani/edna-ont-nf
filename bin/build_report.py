@@ -17,6 +17,7 @@ import pandas as pd
 
 COLS = ["seq_id", "subject_id", "pident", "length", "evalue", "bitscore", "qcovs", "stitle"]
 SKIPPED_COLS = ["sample", "trimmed_reads", "largest_cluster", "reason"]
+SKIPPED_CLUSTER_COLS = ["sample", "cluster", "reads", "draft_length", "reason"]
 
 
 def load_hits(paths):
@@ -79,14 +80,27 @@ def tied_species(ranked, tie_pident):
     return out
 
 
-def load_skipped(paths):
-    """VSEARCH_CLUSTER's one-line <sample>.skipped.tsv files (a sample with no
-    reads after trimming, or no cluster of --min_cluster reads)."""
+def read_rows(paths):
     rows = []
     for p in paths or []:
         with open(p) as fh:
             rows += [line.rstrip("\n").split("\t") for line in fh if line.strip()]
-    return pd.DataFrame(rows, columns=SKIPPED_COLS).sort_values("sample", kind="stable")
+    return rows
+
+
+def load_skipped(paths):
+    """VSEARCH_CLUSTER's one-line <sample>.skipped.tsv files (a sample with no
+    reads after trimming, or no cluster of --min_cluster reads)."""
+    return pd.DataFrame(read_rows(paths), columns=SKIPPED_COLS).sort_values("sample", kind="stable")
+
+
+def load_skipped_clusters(paths):
+    """RACON's <sample>.racon_skipped.tsv files, one row per cluster none of
+    whose reads aligned to its own draft (so nothing to polish it with)."""
+    df = pd.DataFrame(read_rows(paths), columns=SKIPPED_CLUSTER_COLS)
+    # cluster ids are vsearch's cluster numbers: sort them as numbers
+    order = pd.to_numeric(df["cluster"], errors="coerce")
+    return df.assign(_o=order).sort_values(["sample", "_o"], kind="stable").drop(columns="_o")
 
 
 def load_consensus_meta(paths):
@@ -223,6 +237,10 @@ def main():
                      help="VSEARCH_CLUSTER's <sample>.skipped.tsv files; listed in skipped_samples.tsv")
     ap.add_argument("--out-skipped", default="skipped_samples.tsv",
                      help="written only when --skipped names at least one sample")
+    ap.add_argument("--skipped-clusters", nargs="*", default=[],
+                     help="RACON's <sample>.racon_skipped.tsv files; listed in skipped_clusters.tsv")
+    ap.add_argument("--out-skipped-clusters", default="skipped_clusters.tsv",
+                     help="written only when --skipped-clusters names at least one cluster")
     args = ap.parse_args()
 
     hits_df = load_hits(args.hits)
@@ -305,6 +323,11 @@ def main():
     skipped = load_skipped(args.skipped)
     if not skipped.empty:
         skipped.to_csv(args.out_skipped, sep="\t", index=False)
+    # clusters RACON had no aligned reads to polish with: likewise in no table
+    # above, and a file only when there are any
+    skipped_clusters = load_skipped_clusters(args.skipped_clusters)
+    if not skipped_clusters.empty:
+        skipped_clusters.to_csv(args.out_skipped_clusters, sep="\t", index=False)
 
     with open(args.out_html, "w") as fh:
         fh.write("<html><body><h2>Run summary</h2>")
@@ -326,6 +349,12 @@ def main():
                      "cluster reached --min_cluster reads (no_cluster). Expected for blanks and "
                      "negative controls.</p>")
             fh.write(skipped.to_html(index=False))
+        if not skipped_clusters.empty:
+            fh.write("<h3>Skipped clusters</h3>")
+            fh.write("<p>Not polished or identified: none of the cluster's reads aligned to its own "
+                     "draft consensus (no_reads_aligned), usually because the reads are too short to "
+                     "place. They are not in abundance_table.tsv.</p>")
+            fh.write(skipped_clusters.to_html(index=False))
         fh.write("</body></html>")
 
 
