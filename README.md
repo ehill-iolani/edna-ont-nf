@@ -65,7 +65,7 @@ nextflow run main.nf -entry MERGE_ONLY --input samplesheet.csv -profile docker
 | `--taxdb` | *(required)* | Reference sequences FASTA; a BLAST db is built from this each run |
 | `--taxdump` | `null` | NCBI taxdump directory or `taxdump.tar.gz` ([download](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz)); adds `taxid` + `superkingdom`...`species` columns to `abundance_table.tsv`, resolved from the best hit's binomial |
 | `--outdir` | `results` | Output directory |
-| `--fwd_primer` / `--rev_primer` | `null` | Primer sequences for cutadapt trimming; trimming is skipped if unset |
+| `--fwd_primer` / `--rev_primer` | `null` | Primer sequences (both 5'->3', as ordered) for cutadapt trimming; skipped if unset. Reads in either orientation are trimmed to what lies between the primers, and reads without both are dropped |
 | `--min_len` / `--max_len` / `--min_qual` | `150` / `300` / `10` | chopper length/quality filtering thresholds |
 | `--cluster_id` | `0.86` | vsearch identity threshold (fraction identity to the cluster centroid) -- tune per amplicon/primer set and basecaller accuracy |
 | `--min_cluster` | `5` | Minimum reads in a read-level cluster to attempt consensus -- a compute/quality floor, kept low so fragments can still be merged |
@@ -112,7 +112,7 @@ flowchart TD
 2. `MERGE_FASTQ` -- merge multi-part fastq(.gz) files per sample
 3. `CHOPPER` -- length/quality filter
    - `READ_STATS` (side branch, `--enable_read_stats`, on by default) -- read length and mean Q-score before vs. after filtering
-4. `CUTADAPT` -- primer trimming (skipped if no primers supplied)
+4. `CUTADAPT` -- primer trimming (skipped if no primers supplied): one linked adapter with `--revcomp`, so reads from either strand are trimmed and come out forward-oriented
 5. `VSEARCH_CLUSTER` -- de novo identity clustering (`vsearch --cluster_fast`), then split the reads into one fastq per cluster of at least `--min_cluster` reads (a low compute/quality floor, not an abundance filter)
 6. `SPOA_CONSENSUS` -- draft consensus per cluster from at most `--spoa_max_reads` of its reads (one task per sample, clusters in parallel across its cpus)
 7. `MINIMAP2_ALIGN` + `RACON` -- alignment-based polish

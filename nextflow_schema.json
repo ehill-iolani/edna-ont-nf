@@ -52,13 +52,13 @@
           "type": "string",
           "pattern": "^[ACGTUWSMKRYBDHVNacgtuwsmkrybdhvn]+$",
           "description": "Forward primer sequence.",
-          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive."
+          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive. e.g. MiFish-U-F (GTCGGTAAAACTCGTGCCAGC) for fish 12S. Set both primers or neither: reads (in either orientation) are trimmed to what lies between them, and reads that don't carry both are dropped."
         },
         "rev_primer": {
           "type": "string",
           "pattern": "^[ACGTUWSMKRYBDHVNacgtuwsmkrybdhvn]+$",
           "description": "Reverse primer sequence.",
-          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive."
+          "help_text": "IUPAC nucleotide codes only (ACGTU + ambiguity codes WSMKRYBDHVN). Case-insensitive. e.g. MiFish-U-R (CATAGTGGGGTATCTAATCCCAGTTTG) for fish 12S. Give it 5'->3' as ordered; the pipeline reverse-complements it itself."
         }
       }
     },
